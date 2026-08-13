@@ -1,10 +1,10 @@
 name: Dip Scan
 
-# Two jobs share one Alpha Vantage free-tier budget of 25 requests/day:
-#   eod       21 price calls + 1 batched news call = 22
-#   intraday   3 price calls                       =  3
-#                                                    ---
-#                                                     25
+# Two schedules share one Alpha Vantage free-tier budget of 25 requests/day:
+#   end-of-day   21 price calls + 1 batched news call = 22
+#   intraday      3 price calls                       =  3
+#                                                       ---
+#                                                        25
 # That is exact, with no headroom. If you widen either watchlist, get a premium
 # key and raise AV_DAILY_LIMIT, or the tool will stop early by design rather
 # than fail halfway through with a rate-limit error.
@@ -17,10 +17,15 @@ on:
     - cron: "30 15 * * 1-5"
   workflow_dispatch:
     inputs:
-      intraday:
-        description: "Run the intraday scan instead of end-of-day"
-        type: boolean
-        default: false
+      mode:
+        description: "What to run"
+        type: choice
+        default: end-of-day
+        options:
+          - end-of-day          # normal scan; alerts only if something qualifies
+          - intraday            # 15-minute bars, daily trend context
+          - end-of-day-notify   # scan, and message even if nothing qualifies
+          - telegram-test       # just prove the bot can reach your phone
 
 jobs:
   scan:
@@ -34,8 +39,8 @@ jobs:
 
       # Persist the price/filing cache and alert-dedupe state between runs so
       # the tool stays inside the request budget and does not re-alert the same
-      # setup daily. The intraday job reuses the daily bars the EOD job cached,
-      # which is what keeps intraday down to one request per symbol.
+      # setup daily. The intraday run reuses the daily bars the end-of-day run
+      # cached, which is what keeps intraday to one request per symbol.
       - name: Restore cache
         uses: actions/cache@v4
         with:
@@ -45,28 +50,39 @@ jobs:
           key: dip-scan-${{ github.run_id }}
           restore-keys: dip-scan-
 
-      # The midday cron and the manual toggle both mean "intraday".
+      # A manual run uses the dropdown. A scheduled run has no inputs, so the
+      # cron expression itself decides: the midday one means intraday.
       - name: Select mode
-        id: mode
+        id: select
         run: |
-          if [ "${{ github.event.schedule }}" = "30 15 * * 1-5" ] \
-             || [ "${{ inputs.intraday }}" = "true" ]; then
-            echo "flag=--intraday" >> "$GITHUB_OUTPUT"
-          else
-            echo "flag=" >> "$GITHUB_OUTPUT"
+          MODE="${{ inputs.mode }}"
+          if [ -z "$MODE" ]; then
+            if [ "${{ github.event.schedule }}" = "30 15 * * 1-5" ]; then
+              MODE="intraday"
+            else
+              MODE="end-of-day"
+            fi
           fi
+          case "$MODE" in
+            telegram-test)      CMD="test-telegram" ;;
+            intraday)           CMD="scan --intraday" ;;
+            end-of-day-notify)  CMD="scan --always-send" ;;
+            *)                  CMD="scan" ;;
+          esac
+          echo "Mode: $MODE  ->  signal_tool.py $CMD"
+          echo "cmd=$CMD" >> "$GITHUB_OUTPUT"
 
-      - name: Run scan
+      - name: Run
         env:
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
-          # Optional: set these as repo *variables* to enable position sizing.
+          # Position sizing. Set these under the Variables tab, not Secrets.
           ACCOUNT_SIZE: ${{ vars.ACCOUNT_SIZE }}
           RISK_PCT: ${{ vars.RISK_PCT }}
           MAX_POSITION_PCT: ${{ vars.MAX_POSITION_PCT }}
-        run: python signal_tool.py scan ${{ steps.mode.outputs.flag }}
+        run: python signal_tool.py ${{ steps.select.outputs.cmd }}
 
   test:
     runs-on: ubuntu-latest
