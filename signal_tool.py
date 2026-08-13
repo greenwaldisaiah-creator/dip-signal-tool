@@ -49,12 +49,45 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_DIR = BASE_DIR / "cache"
 STATE_FILE = BASE_DIR / "state.json"
 
-ALPHA_KEY = os.environ.get("ALPHAVANTAGE_API_KEY", "")
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+# --- Environment parsing -----------------------------------------------------
+# GitHub Actions sets an env var to the EMPTY STRING when the repository
+# variable behind it is undefined -- the key exists, so os.environ.get() returns
+# "" rather than the default, and float("") raises at import time. That takes
+# the whole tool down, not just the command that needed the value. These helpers
+# treat empty/whitespace as unset, tolerate values typed with $ or commas, and
+# fall back with a warning instead of crashing.
+
+def env_str(name: str, default: str = "") -> str:
+    v = os.environ.get(name)
+    return v.strip() if v and v.strip() else default
+
+
+def _env_num(name: str, default, cast):
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    cleaned = raw.strip().replace("$", "").replace(",", "").replace("%", "")
+    try:
+        return cast(cleaned)
+    except ValueError:
+        print(f"! {name}={raw!r} is not a number — using {default}", file=sys.stderr)
+        return default
+
+
+def env_float(name: str, default: float) -> float:
+    return _env_num(name, default, float)
+
+
+def env_int(name: str, default: int) -> int:
+    return _env_num(name, default, lambda x: int(float(x)))
+
+
+ALPHA_KEY = env_str("ALPHAVANTAGE_API_KEY")
+TELEGRAM_TOKEN = env_str("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = env_str("TELEGRAM_CHAT_ID")
 
 # SEC requires a descriptive User-Agent with contact info on every request.
-SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "DipSignalTool contact@example.com")
+SEC_USER_AGENT = env_str("SEC_USER_AGENT", "DipSignalTool contact@example.com")
 
 # --- Price data providers ----------------------------------------------------
 # Twelve Data is tried first when a key is present: its free tier allows 800
@@ -62,9 +95,9 @@ SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "DipSignalTool contact@example
 # call, which is what makes a true 200-day MA and a real backtest possible.
 # Alpha Vantage remains the fallback, and is still the sole source of news
 # sentiment. If every provider fails, cached history is used.
-TD_KEY = os.environ.get("TWELVEDATA_API_KEY", "")
-TD_DAILY_LIMIT = int(os.environ.get("TD_DAILY_LIMIT", "800"))
-TD_RATE_SLEEP = float(os.environ.get("TD_RATE_SLEEP", "8.0"))  # free tier: 8 req/min
+TD_KEY = env_str("TWELVEDATA_API_KEY")
+TD_DAILY_LIMIT = env_int("TD_DAILY_LIMIT", 800)
+TD_RATE_SLEEP = env_float("TD_RATE_SLEEP", 8.0)   # free tier: 8 requests/minute
 _td_requests_used = 0
 _td_last_request_at = 0.0
 
@@ -88,7 +121,7 @@ INTRADAY_INTERVAL = "15min"
 # Intraday fires far more often than the end-of-day scan, so it holds a higher
 # bar. Without this, 27 sweeps a day across 21 symbols would bury the genuinely
 # strong setups under WATCH-tier noise on your phone.
-INTRADAY_MIN_SCORE = float(os.environ.get("INTRADAY_MIN_SCORE", "55"))
+INTRADAY_MIN_SCORE = env_float("INTRADAY_MIN_SCORE", 55.0)
 
 # US market hours in UTC during EDT. Scans outside these bounds would burn
 # credits on stale bars, so they exit early.
@@ -109,7 +142,7 @@ MARKET_HOLIDAYS = {
 # batched news call = 22, which fits. Anything more must come out of the same
 # pot, so requests are counted and hard-capped rather than left to fail
 # mid-scan with a confusing rate-limit message.
-AV_DAILY_LIMIT = int(os.environ.get("AV_DAILY_LIMIT", "25"))
+AV_DAILY_LIMIT = env_int("AV_DAILY_LIMIT", 25)
 AV_RATE_SLEEP = 1.2  # Alpha Vantage asks for <=1 request/second on free keys
 _av_requests_used = 0
 _av_last_request_at = 0.0
@@ -209,9 +242,9 @@ def av_budget_report() -> str:
 
 # --- Position sizing ---------------------------------------------------------
 # Set ACCOUNT_SIZE to enable share-count suggestions in alerts.
-ACCOUNT_SIZE = float(os.environ.get("ACCOUNT_SIZE", "0") or 0)
-RISK_PCT = float(os.environ.get("RISK_PCT", "1.0") or 1.0)      # % of account risked per trade
-MAX_POSITION_PCT = float(os.environ.get("MAX_POSITION_PCT", "20") or 20)  # cap per name
+ACCOUNT_SIZE = env_float("ACCOUNT_SIZE", 0.0)
+RISK_PCT = env_float("RISK_PCT", 1.0)             # % of account risked per trade
+MAX_POSITION_PCT = env_float("MAX_POSITION_PCT", 20.0)  # cap per name
 
 # Only these outlets count toward the news signal. Aggregators, promotional
 # newsletters and SEO content farms are excluded -- they add noise, not signal.
@@ -1384,8 +1417,8 @@ def format_message(signals: list[Signal], regime: Regime, intraday: bool = False
 # done rather than what the scoring model hoped. This is the only part of the
 # tool that can tell you whether the signal is worth anything.
 
-PAPER_TRADE_USD = float(os.environ.get("PAPER_TRADE_USD", "100"))
-PAPER_MAX_HOLD_DAYS = int(os.environ.get("PAPER_MAX_HOLD_DAYS", "30"))
+PAPER_TRADE_USD = env_float("PAPER_TRADE_USD", 100.0)
+PAPER_MAX_HOLD_DAYS = env_int("PAPER_MAX_HOLD_DAYS", 30)
 TRADES_FILE = BASE_DIR / "trades.json"
 
 
