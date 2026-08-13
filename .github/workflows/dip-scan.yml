@@ -1,13 +1,13 @@
 name: Dip Scan
 
-# Two schedules share one Alpha Vantage free-tier budget of 25 requests/day:
-#   end-of-day   21 price calls + 1 batched news call = 22
-#   intraday      3 price calls                       =  3
-#                                                       ---
-#                                                        25
-# That is exact, with no headroom. If you widen either watchlist, get a premium
-# key and raise AV_DAILY_LIMIT, or the tool will stop early by design rather
-# than fail halfway through with a rate-limit error.
+# Data budget:
+#   Without TWELVEDATA_API_KEY -- Alpha Vantage only, 25 requests/day. The
+#     watchlist self-limits to 11 symbols and the long-run trend comes from the
+#     weekly series, because outputsize=full is a premium endpoint there.
+#   With TWELVEDATA_API_KEY -- 800 requests/day and deep daily history, so the
+#     watchlist expands to 21 symbols automatically and the backtest works.
+# Either way the tool counts its own requests and stops cleanly rather than
+# failing halfway through with a rate-limit error.
 
 on:
   schedule:
@@ -75,6 +75,9 @@ jobs:
       - name: Run
         env:
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+          # Optional. When present, prices come from Twelve Data (800 req/day,
+          # deep history) and Alpha Vantage becomes the fallback + news source.
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
