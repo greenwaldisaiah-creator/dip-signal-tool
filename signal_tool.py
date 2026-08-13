@@ -1936,6 +1936,7 @@ def cmd_history(args) -> int:
     print(f"  Avg win/loss    ${st['avg_win']:+,.2f} / ${st['avg_loss']:+,.2f}")
     print(f"  Best / worst    ${st['best']:+,.2f} / ${st['worst']:+,.2f}")
     print(f"{'='*66}")
+    print(f"  {_cost_disclosure()}")
     if st["trades"] < 30:
         print("! Fewer than 30 closed trades — too small a sample to conclude")
         print("  anything. Treat these numbers as provisional.")
@@ -1946,7 +1947,8 @@ def cmd_history(args) -> int:
             for t in closed[:10])
         telegram_send(
             f"<b>Paper Trading Report</b>\n{paper_summary_line(st)}\n\n"
-            f"<b>Recent closes</b>\n<pre>{rows or 'none yet'}</pre>"
+            f"<b>Recent closes</b>\n<pre>{rows or 'none yet'}</pre>\n"
+            f"<i>{_cost_disclosure()}</i>"
         )
     return 0
 
@@ -2163,6 +2165,26 @@ def cmd_autotune(args) -> int:
     elif new != current:
         print(f"  (dry run — pass --apply to make the change)")
     return 0
+
+
+def _cost_disclosure() -> str:
+    """Describe the cost assumptions actually in force.
+
+    Generated from the live settings rather than written by hand: a hardcoded
+    sentence claiming costs were ignored survived three revisions after the
+    cost model was added, which is exactly the drift this prevents.
+    """
+    if SLIPPAGE_BPS <= 0 and COMMISSION_USD <= 0:
+        return ("Costs are NOT modelled (SLIPPAGE_BPS=0, COMMISSION_USD=0) — "
+                "these are gross returns.")
+    parts = []
+    if SLIPPAGE_BPS > 0:
+        parts.append(f"{SLIPPAGE_BPS:.0f}bps slippage on stop/time exits")
+    if COMMISSION_USD > 0:
+        parts.append(f"${COMMISSION_USD:.2f} commission per round trip")
+    return ("Costs modelled: " + " and ".join(parts) +
+            ". Limit entries and targets fill at their price. Assumes you get "
+            "those fills — real partial fills are not modelled.")
 
 
 def cmd_optimize(args) -> int:
@@ -2416,8 +2438,8 @@ def cmd_backtest(args) -> int:
         elif a["pf"] is not None and a["pf"] < 1.2:
             verdict.append("Positive but thin. Slippage and fees could erase it.")
         else:
-            verdict.append("Positive edge on this sample. Still a backtest, not a promise:")
-            verdict.append("it assumes limit fills, and ignores slippage and commission.")
+            verdict.append("Positive edge on this sample. Still a backtest, not a promise.")
+            verdict.append(_cost_disclosure())
     for line in verdict:
         print("  " + line)
     if insufficient:

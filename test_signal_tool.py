@@ -1000,6 +1000,40 @@ if ST.TRADES_FILE.exists(): ST.TRADES_FILE.unlink()
 ST.TRADES_FILE = Path("trades.json")
 ST.SLIPPAGE_BPS, ST.COMMISSION_USD = _o
 
+print("\nCost disclosure matches actual behaviour")
+
+_sv = ST.SLIPPAGE_BPS, ST.COMMISSION_USD
+
+# The bug this guards: the wording said costs were ignored for three revisions
+# after the cost model went in. Assert the sentence tracks the behaviour.
+ST.SLIPPAGE_BPS, ST.COMMISSION_USD = 5.0, 0.0
+_d = ST._cost_disclosure()
+_, _cost = ST.apply_costs(100.0, 95.0, "stop", 1.0)
+check("when costs ARE charged, the disclosure says so",
+      _cost > 0 and "Costs modelled" in _d, _d[:70])
+check("the disclosure never claims costs are ignored while charging them",
+      not ("ignores slippage" in _d or "NOT modelled" in _d), _d[:70])
+check("the disclosure states the actual slippage figure", "5bps" in _d, _d[:70])
+
+ST.SLIPPAGE_BPS, ST.COMMISSION_USD = 0.0, 0.0
+_d0 = ST._cost_disclosure()
+_, _c0 = ST.apply_costs(100.0, 95.0, "stop", 1.0)
+check("when costs are NOT charged, the disclosure says that instead",
+      _c0 == 0 and "NOT modelled" in _d0, _d0[:70])
+
+ST.SLIPPAGE_BPS, ST.COMMISSION_USD = 5.0, 1.5
+_d2 = ST._cost_disclosure()
+check("commission is disclosed when set", "1.50" in _d2 and "commission" in _d2, _d2[:90])
+check("disclosure mentions the unmodelled assumption (fills)",
+      "fills" in _d2.lower(), _d2[:90])
+
+# No hardcoded contradiction may survive anywhere in the source.
+_src = Path("signal_tool.py").read_text()
+check("no leftover 'ignores slippage and commission' text in the codebase",
+      "ignores slippage and commission" not in _src)
+
+ST.SLIPPAGE_BPS, ST.COMMISSION_USD = _sv
+
 print(f"\n{'='*54}")
 if FAILS:
     print(f"{len(FAILS)} FAILURE(S): {', '.join(FAILS)}")
