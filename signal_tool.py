@@ -78,12 +78,31 @@ SECTORS = ["XLK", "XLF", "XLE", "XLV", "XLY", "XLI", "XLP", "XLU", "XLB", "XLC"]
 WATCHLIST = INDICES + MEGACAPS + (SECTORS if TD_KEY else [])
 BENCHMARK = "SPY"
 
-# Intraday is request-hungry, so it runs against a deliberately short list.
-# Free-tier arithmetic: the daily scan spends 22 of 25 requests, leaving 3.
-# Each intraday symbol costs 1 (its daily bars come from the cache the EOD scan
-# already filled). Widen this only with a premium key -- see README.
-INTRADAY_WATCHLIST = ["SPY", "QQQ", "NVDA"]
+# Intraday scans the whole watchlist when Twelve Data is available, and only a
+# handful otherwise. 15-minute bars only produce new data every 15 minutes, so
+# scanning more often than that returns identical numbers -- 27 sweeps covers a
+# full session, which is ~567 of Twelve Data's 800 free daily credits.
+INTRADAY_WATCHLIST = WATCHLIST if TD_KEY else ["SPY", "QQQ", "NVDA"]
 INTRADAY_INTERVAL = "15min"
+
+# Intraday fires far more often than the end-of-day scan, so it holds a higher
+# bar. Without this, 27 sweeps a day across 21 symbols would bury the genuinely
+# strong setups under WATCH-tier noise on your phone.
+INTRADAY_MIN_SCORE = float(os.environ.get("INTRADAY_MIN_SCORE", "55"))
+
+# US market hours in UTC during EDT. Scans outside these bounds would burn
+# credits on stale bars, so they exit early.
+MARKET_OPEN_UTC = (13, 30)
+MARKET_CLOSE_UTC = (20, 0)
+
+# NYSE holidays. Scheduled runs on these days would waste credits and could
+# re-alert yesterday's bars as if they were new.
+MARKET_HOLIDAYS = {
+    "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",
+    "2026-06-19", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+    "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31",
+    "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
+}
 
 # --- Alpha Vantage request budget -------------------------------------------
 # Free tier allows 25 requests/day. A daily scan costs 21 price calls + 1
@@ -110,6 +129,65 @@ def av_pace() -> None:
     _av_last_request_at = time.monotonic()
 
 
+def market_status(now: datetime | None = None) -> tuple[bool, str]:
+    """Is the US market open right now? Returns (open, reason).
+
+    Each scheduled run is a separate process, and GitHub's scheduler can fire
+    late, so this is checked at runtime rather than trusted to cron alone.
+    """
+    now = now or datetime.now(timezone.utc)
+    if now.weekday() >= 5:
+        return False, "weekend"
+    if now.date().isoformat() in MARKET_HOLIDAYS:
+        return False, "market holiday"
+    minutes = now.hour * 60 + now.minute
+    open_m = MARKET_OPEN_UTC[0] * 60 + MARKET_OPEN_UTC[1]
+    close_m = MARKET_CLOSE_UTC[0] * 60 + MARKET_CLOSE_UTC[1]
+    if minutes < open_m:
+        return False, "before the open"
+    if minutes > close_m:
+        return False, "after the close"
+    return True, "open"
+
+
+# --- Cross-run usage tracking -----------------------------------------------
+# Each scheduled run is a fresh process, so an in-memory counter resets 27 times
+# a day and can never see the real daily total. Usage is persisted per UTC date
+# in the same cache the workflow already carries between runs.
+
+def _usage_path() -> Path:
+    return cache_path(f"usage_{datetime.now(timezone.utc).date().isoformat()}.json")
+
+
+def _load_usage() -> dict:
+    p = _usage_path()
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except json.JSONDecodeError:
+            pass
+    return {"av": 0, "td": 0}
+
+
+def _save_usage(u: dict) -> None:
+    try:
+        _usage_path().write_text(json.dumps(u))
+    except OSError:
+        pass  # usage tracking is best-effort; never fail a scan over it
+
+
+def load_persisted_usage() -> None:
+    """Seed the in-process counters from today's persisted totals."""
+    global _av_requests_used, _td_requests_used
+    u = _load_usage()
+    _av_requests_used = int(u.get("av", 0))
+    _td_requests_used = int(u.get("td", 0))
+
+
+def persist_usage() -> None:
+    _save_usage({"av": _av_requests_used, "td": _td_requests_used})
+
+
 def av_budget_check(n: int = 1) -> None:
     """Raise before spending a request we don't have."""
     global _av_requests_used
@@ -123,7 +201,10 @@ def av_budget_check(n: int = 1) -> None:
 
 
 def av_budget_report() -> str:
-    return f"{_av_requests_used}/{AV_DAILY_LIMIT} Alpha Vantage requests used"
+    parts = [f"Alpha Vantage {_av_requests_used}/{AV_DAILY_LIMIT}"]
+    if TD_KEY:
+        parts.append(f"Twelve Data {_td_requests_used}/{TD_DAILY_LIMIT}")
+    return "Requests used today — " + ", ".join(parts)
 
 
 # --- Position sizing ---------------------------------------------------------
@@ -1244,6 +1325,16 @@ def cmd_scan(args) -> int:
     intraday = getattr(args, "intraday", False)
     symbols = args.symbols or (INTRADAY_WATCHLIST if intraday else WATCHLIST)
     mode = f"intraday {INTRADAY_INTERVAL}" if intraday else "end-of-day"
+
+    # Intraday runs every 15 minutes all session. Outside market hours the bars
+    # are stale, so exit before spending any credits.
+    if intraday and not getattr(args, "ignore_market_hours", False):
+        is_open, why = market_status()
+        if not is_open:
+            print(f"Market is closed ({why}) — skipping intraday scan.")
+            return 0
+
+    load_persisted_usage()
     print(f"Scanning {len(symbols)} symbols ({mode})...")
 
     tech_by_symbol: dict[str, Technicals] = {}
@@ -1317,11 +1408,14 @@ def cmd_scan(args) -> int:
         prelim, _ = score_technicals(tech)
         flow = fetch_flow(sym) if (prelim >= TIER_WATCH - 10 and not args.no_flow) else FlowSignal()
         sig = evaluate(sym, tech, news_by_symbol.get(sym, NewsSignal()), flow, regime)
+        if sig and intraday and sig.final_score < INTRADAY_MIN_SCORE:
+            continue        # intraday holds a higher bar than end-of-day
         if sig:
             signals.append(sig)
 
     signals.sort(key=lambda s: -s.final_score)
 
+    persist_usage()
     if not signals:
         print("\nNo qualifying dips today.")
         if args.always_send:
@@ -1355,6 +1449,7 @@ def cmd_scan(args) -> int:
                 "date": now, "tier": s.tier, "score": s.final_score,
             }
         save_state(state)
+    persist_usage()
     print(av_budget_report())
     return 0
 
@@ -1485,6 +1580,8 @@ def main() -> int:
     s.add_argument("--always-send", action="store_true", help="send even when nothing fires")
     s.add_argument("--intraday", action="store_true",
                    help=f"use {INTRADAY_INTERVAL} bars with daily trend context")
+    s.add_argument("--ignore-market-hours", action="store_true",
+                   help="run an intraday scan even when the market is closed")
     s.set_defaults(func=cmd_scan)
 
     b = sub.add_parser("backtest", help="validate the scoring rules on history")
