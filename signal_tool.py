@@ -37,7 +37,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -56,10 +56,26 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 # SEC requires a descriptive User-Agent with contact info on every request.
 SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "DipSignalTool contact@example.com")
 
+# --- Price data providers ----------------------------------------------------
+# Twelve Data is tried first when a key is present: its free tier allows 800
+# requests/day (vs Alpha Vantage's 25) and returns deep daily history in one
+# call, which is what makes a true 200-day MA and a real backtest possible.
+# Alpha Vantage remains the fallback, and is still the sole source of news
+# sentiment. If every provider fails, cached history is used.
+TD_KEY = os.environ.get("TWELVEDATA_API_KEY", "")
+TD_DAILY_LIMIT = int(os.environ.get("TD_DAILY_LIMIT", "800"))
+TD_RATE_SLEEP = float(os.environ.get("TD_RATE_SLEEP", "8.0"))  # free tier: 8 req/min
+_td_requests_used = 0
+_td_last_request_at = 0.0
+
 INDICES = ["SPY", "QQQ", "IWM"]
 MEGACAPS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO"]
 SECTORS = ["XLK", "XLF", "XLE", "XLV", "XLY", "XLI", "XLP", "XLU", "XLB", "XLC"]
-WATCHLIST = INDICES + MEGACAPS + SECTORS          # 21 symbols
+
+# The watchlist sizes itself to the data budget rather than making you tune it.
+# Alpha Vantage alone (25 req/day) supports 11 symbols; adding a Twelve Data key
+# lifts the ceiling enough to scan the sector ETFs too.
+WATCHLIST = INDICES + MEGACAPS + (SECTORS if TD_KEY else [])
 BENCHMARK = "SPY"
 
 # Intraday is request-hungry, so it runs against a deliberately short list.
@@ -75,8 +91,23 @@ INTRADAY_INTERVAL = "15min"
 # pot, so requests are counted and hard-capped rather than left to fail
 # mid-scan with a confusing rate-limit message.
 AV_DAILY_LIMIT = int(os.environ.get("AV_DAILY_LIMIT", "25"))
-AV_RATE_SLEEP = 1.0  # polite pacing between calls
+AV_RATE_SLEEP = 1.2  # Alpha Vantage asks for <=1 request/second on free keys
 _av_requests_used = 0
+_av_last_request_at = 0.0
+
+
+def av_pace() -> None:
+    """Sleep so consecutive requests stay at least AV_RATE_SLEEP apart.
+
+    This runs BEFORE each request, not after a successful one. Pacing only on
+    success is worse than useless: the moment a call fails, every remaining call
+    fires back to back and the whole scan gets rate-limited.
+    """
+    global _av_last_request_at
+    wait = AV_RATE_SLEEP - (time.monotonic() - _av_last_request_at)
+    if wait > 0:
+        time.sleep(wait)
+    _av_last_request_at = time.monotonic()
 
 
 def av_budget_check(n: int = 1) -> None:
@@ -178,32 +209,80 @@ class Bar:
     volume: float
 
 
-def fetch_prices(symbol: str, full: bool = True, max_age_hours: float = 20) -> list[Bar]:
-    """Daily OHLCV, oldest first.
+def _bars_to_json(bars: list[Bar], source: str) -> dict:
+    return {"source": source, "bars": [asdict(b) for b in bars]}
 
-    Defaults to the full series: the 200-day moving average is the model's
-    primary falling-knife guard, and a 100-bar "compact" response cannot
-    produce one. Costs the same single API request either way.
+
+def _bars_from_json(d: dict) -> list[Bar]:
+    return [Bar(**x) for x in d.get("bars", [])]
+
+
+def _merge_bars(old: list[Bar], new: list[Bar]) -> list[Bar]:
+    """Union two bar series by date, newer data winning on overlap.
+
+    This is what lets a provider that only returns a short window still build
+    real history over time.
     """
-    size = "full" if full else "compact"
+    by_date = {b.date: b for b in old}
+    by_date.update({b.date: b for b in new})
+    return sorted(by_date.values(), key=lambda b: b.date)
 
-    def loader() -> dict:
-        if not ALPHA_KEY:
-            raise DataError("ALPHAVANTAGE_API_KEY is not set")
-        av_budget_check()
-        url = (
-            "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY"
-            f"&symbol={urllib.parse.quote(symbol)}&outputsize={size}&apikey={ALPHA_KEY}"
-        )
-        data = http_get_json(url)
-        if "Time Series (Daily)" not in data:
-            note = data.get("Note") or data.get("Information") or data.get("Error Message")
-            raise DataError(f"{symbol}: {note or 'unexpected response'}")
-        time.sleep(AV_RATE_SLEEP)
-        return data
 
-    raw = cached_json(f"px_{symbol}_{size}.json", max_age_hours, loader)
-    series = raw["Time Series (Daily)"]
+# --- Twelve Data -------------------------------------------------------------
+# Free tier: 800 requests/day and 8/minute, with deep daily history in a single
+# call. That is 32x Alpha Vantage's daily allowance, and it is what makes a real
+# 200-day moving average (and a real backtest) possible without paying.
+
+def td_pace() -> None:
+    global _td_last_request_at
+    wait = TD_RATE_SLEEP - (time.monotonic() - _td_last_request_at)
+    if wait > 0:
+        time.sleep(wait)
+    _td_last_request_at = time.monotonic()
+
+
+def td_budget_check(n: int = 1) -> None:
+    global _td_requests_used
+    if _td_requests_used + n > TD_DAILY_LIMIT:
+        raise DataError(f"Twelve Data budget exhausted ({_td_requests_used}/{TD_DAILY_LIMIT})")
+    _td_requests_used += n
+
+
+def td_time_series(symbol: str, interval: str = "1day", outputsize: int = 500) -> list[Bar]:
+    """Fetch a normalised bar series from Twelve Data."""
+    if not TD_KEY:
+        raise DataError("TWELVEDATA_API_KEY is not set")
+    td_budget_check()
+    td_pace()
+    url = (
+        "https://api.twelvedata.com/time_series"
+        f"?symbol={urllib.parse.quote(symbol)}&interval={interval}"
+        f"&outputsize={outputsize}&apikey={TD_KEY}"
+    )
+    data = http_get_json(url)
+    if str(data.get("status", "")).lower() == "error" or "values" not in data:
+        raise DataError(f"{symbol}: {data.get('message') or 'unexpected response'}")
+    bars = []
+    for v in data["values"]:
+        try:
+            bars.append(Bar(
+                date=v["datetime"],
+                open=float(v["open"]), high=float(v["high"]),
+                low=float(v["low"]), close=float(v["close"]),
+                # Index ETFs sometimes report no volume; treat that as 0 rather
+                # than dropping the bar entirely.
+                volume=float(v.get("volume") or 0),
+            ))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not bars:
+        raise DataError(f"{symbol}: empty series")
+    bars.sort(key=lambda b: b.date)
+    return bars
+
+
+def _parse_series(raw: dict, key: str) -> list[Bar]:
+    series = raw[key]
     bars = [
         Bar(
             date=d,
@@ -219,6 +298,132 @@ def fetch_prices(symbol: str, full: bool = True, max_age_hours: float = 20) -> l
     return bars
 
 
+def fetch_prices(symbol: str, full: bool = False, max_age_hours: float = 20) -> list[Bar]:
+    """Daily OHLCV, oldest first.
+
+    IMPORTANT: `outputsize=full` is a PREMIUM feature on TIME_SERIES_DAILY. A
+    free key gets 'compact' -- the most recent 100 bars -- and asking for full
+    fails outright. So this defaults to compact, and the long-run trend comes
+    from the weekly series instead (see fetch_weekly).
+
+    To claw back history anyway, each response is MERGED into whatever this
+    symbol already had cached. Every run adds at most a few new bars but never
+    discards old ones, so the stored series grows past 100 bars on its own. Once
+    it passes 200 the true 200-day average becomes available for free.
+    """
+    path = cache_path(f"px_{symbol}.json")
+
+    stored: list[Bar] = []
+    if path.exists():
+        try:
+            cached = json.loads(path.read_text())
+            stored = _bars_from_json(cached)
+            age_h = (time.time() - path.stat().st_mtime) / 3600
+            if age_h < max_age_hours and stored:
+                return stored
+        except (json.JSONDecodeError, TypeError, KeyError):
+            stored = []
+
+    def from_twelvedata() -> list[Bar]:
+        return td_time_series(symbol, "1day", 5000 if full else 500)
+
+    def from_alphavantage() -> list[Bar]:
+        if not ALPHA_KEY:
+            raise DataError("ALPHAVANTAGE_API_KEY is not set")
+        av_budget_check()
+        av_pace()
+        # NOTE: outputsize=full is a PREMIUM feature here. Free keys get the
+        # last 100 bars only, which is why the weekly series exists.
+        size = "full" if full else "compact"
+        url = (
+            "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY"
+            f"&symbol={urllib.parse.quote(symbol)}&outputsize={size}&apikey={ALPHA_KEY}"
+        )
+        data = http_get_json(url)
+        if "Time Series (Daily)" not in data:
+            note = (data.get("Note") or data.get("Information")
+                    or data.get("Error Message"))
+            raise DataError(f"{symbol}: {note or 'unexpected response'}")
+        return _parse_series(data, "Time Series (Daily)")
+
+    errors = []
+    for name, provider in (("twelvedata", from_twelvedata),
+                           ("alphavantage", from_alphavantage)):
+        try:
+            fresh_bars = provider()
+        except DataError as exc:
+            errors.append(f"{name}: {exc}")
+            continue
+        merged = _merge_bars(stored, fresh_bars)
+        path.write_text(json.dumps(_bars_to_json(merged, name)))
+        return merged
+
+    # Every provider failed. Stale history still produces a usable signal, and
+    # is far better than dropping the symbol from the scan entirely.
+    if stored:
+        print(f"  ! {symbol}: all providers failed, using cached history "
+              f"({'; '.join(errors)})", file=sys.stderr)
+        return stored
+    raise DataError("; ".join(errors) or "no price provider available")
+
+
+def fetch_weekly(symbol: str, max_age_hours: float = 168) -> list[Bar]:
+    """Weekly OHLCV covering 20+ years -- and free, unlike daily full history.
+
+    This is what makes a real long-term trend filter possible on a free key.
+    A 40-week moving average is the standard equivalent of the 200-day: same
+    horizon, one fifth the data. Cached a week, because a weekly bar only
+    changes once a week.
+    """
+    path = cache_path(f"weekly_{symbol}.json")
+    if path.exists():
+        age_h = (time.time() - path.stat().st_mtime) / 3600
+        if age_h < max_age_hours:
+            try:
+                bars = _bars_from_json(json.loads(path.read_text()))
+                if bars:
+                    return bars
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass
+
+    def from_twelvedata() -> list[Bar]:
+        return td_time_series(symbol, "1week", 1000)
+
+    def from_alphavantage() -> list[Bar]:
+        if not ALPHA_KEY:
+            raise DataError("ALPHAVANTAGE_API_KEY is not set")
+        av_budget_check()
+        av_pace()
+        url = (
+            "https://www.alphavantage.co/query?function=TIME_SERIES_WEEKLY"
+            f"&symbol={urllib.parse.quote(symbol)}&apikey={ALPHA_KEY}"
+        )
+        data = http_get_json(url)
+        if "Weekly Time Series" not in data:
+            note = (data.get("Note") or data.get("Information")
+                    or data.get("Error Message"))
+            raise DataError(f"{symbol} weekly: {note or 'unexpected response'}")
+        return _parse_series(data, "Weekly Time Series")
+
+    errors = []
+    for name, provider in (("twelvedata", from_twelvedata),
+                           ("alphavantage", from_alphavantage)):
+        try:
+            bars = provider()
+        except DataError as exc:
+            errors.append(f"{name}: {exc}")
+            continue
+        path.write_text(json.dumps(_bars_to_json(bars, name)))
+        return bars
+
+    if path.exists():
+        try:
+            return _bars_from_json(json.loads(path.read_text()))
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
+    raise DataError("; ".join(errors) or "no weekly provider available")
+
+
 def fetch_intraday(symbol: str, interval: str = INTRADAY_INTERVAL,
                    max_age_hours: float = 0.4) -> list[Bar]:
     """Intraday OHLCV bars, oldest first.
@@ -227,10 +432,25 @@ def fetch_intraday(symbol: str, interval: str = INTRADAY_INTERVAL,
     this is a *separate* request from the daily series and comes out of the
     same free-tier budget -- see the scan-cadence note in the README.
     """
-    def loader() -> dict:
+    path = cache_path(f"intraday_{symbol}_{interval}.json")
+    if path.exists():
+        age_h = (time.time() - path.stat().st_mtime) / 3600
+        if age_h < max_age_hours:
+            try:
+                bars = _bars_from_json(json.loads(path.read_text()))
+                if bars:
+                    return bars
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass
+
+    def from_twelvedata() -> list[Bar]:
+        return td_time_series(symbol, interval, 500)
+
+    def from_alphavantage() -> list[Bar]:
         if not ALPHA_KEY:
             raise DataError("ALPHAVANTAGE_API_KEY is not set")
         av_budget_check()
+        av_pace()
         url = (
             "https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY"
             f"&symbol={urllib.parse.quote(symbol)}&interval={interval}"
@@ -238,24 +458,22 @@ def fetch_intraday(symbol: str, interval: str = INTRADAY_INTERVAL,
         )
         data = http_get_json(url)
         if f"Time Series ({interval})" not in data:
-            note = data.get("Note") or data.get("Information") or data.get("Error Message")
+            note = (data.get("Note") or data.get("Information")
+                    or data.get("Error Message"))
             raise DataError(f"{symbol} intraday: {note or 'unexpected response'}")
-        time.sleep(AV_RATE_SLEEP)
-        return data
+        return _parse_series(data, f"Time Series ({interval})")
 
-    raw = cached_json(f"intraday_{symbol}_{interval}.json", max_age_hours, loader)
-    series = raw[f"Time Series ({interval})"]
-    bars = [
-        Bar(
-            date=d,
-            open=float(v["1. open"]), high=float(v["2. high"]),
-            low=float(v["3. low"]), close=float(v["4. close"]),
-            volume=float(v["5. volume"]),
-        )
-        for d, v in series.items()
-    ]
-    bars.sort(key=lambda b: b.date)
-    return bars
+    errors = []
+    for name, provider in (("twelvedata", from_twelvedata),
+                           ("alphavantage", from_alphavantage)):
+        try:
+            bars = provider()
+        except DataError as exc:
+            errors.append(f"{name}: {exc}")
+            continue
+        path.write_text(json.dumps(_bars_to_json(bars, name)))
+        return bars
+    raise DataError("; ".join(errors) or "no intraday provider available")
 
 
 def blend_intraday_with_daily(intra: Technicals, daily: Technicals) -> Technicals:
@@ -283,6 +501,12 @@ def blend_intraday_with_daily(intra: Technicals, daily: Technicals) -> Technical
                        if daily.high50 else None,
         vol_ratio=intra.vol_ratio,
         atr_pct=daily.atr_pct,                       # size on daily volatility
+        # Trend reference and the 52-week high are long-run context by
+        # definition -- they must come from the daily/weekly legs, or the
+        # falling-knife veto silently stops working in intraday mode.
+        trend_ma=daily.trend_ma,
+        trend_basis=daily.trend_basis,
+        high52w=daily.high52w,
     )
 
 
@@ -362,6 +586,11 @@ class Technicals:
     dd_from_high50: float | None
     vol_ratio: float | None        # today's volume / 20-day average
     atr_pct: float | None
+    # Long-run trend reference. Prefers the 200-day MA when enough daily history
+    # has accumulated, else the 40-week MA from the free weekly series.
+    trend_ma: float | None = None
+    trend_basis: str = "none"      # "200d" | "40w" | "none"
+    high52w: float | None = None
 
 
 def compute_technicals(bars: list[Bar]) -> Technicals:
@@ -392,7 +621,29 @@ def compute_technicals(bars: list[Bar]) -> Technicals:
         dd_from_high50=((high50 - close) / high50 * 100) if high50 else None,
         vol_ratio=(vols[-1] / avg_vol20) if avg_vol20 else None,
         atr_pct=((atr(bars) or 0) / close * 100) if close else None,
+        trend_ma=s200,
+        trend_basis="200d" if s200 is not None else "none",
     )
+
+
+def attach_weekly_trend(t: Technicals, weekly: list[Bar]) -> Technicals:
+    """Supply the long-run trend from weekly bars when daily history is short.
+
+    A free Alpha Vantage key returns only 100 daily bars, so sma200 is usually
+    None on a fresh install. The 40-week moving average spans the same ~200
+    trading days and comes from an endpoint that is free at full history.
+    A true 200-day MA still wins when it is available.
+    """
+    updates: dict = {}
+    if t.trend_basis != "200d":
+        w40 = sma([b.close for b in weekly], 40)
+        if w40 is not None:
+            updates["trend_ma"], updates["trend_basis"] = w40, "40w"
+    if len(weekly) >= 52:
+        updates["high52w"] = max(b.high for b in weekly[-52:])
+    # Return a copy rather than mutating in place: callers hold references to
+    # the original, and silently rewriting it under them hides bugs.
+    return replace(t, **updates) if updates else t
 
 
 # --------------------------------------------------------------------------
@@ -449,14 +700,19 @@ def score_technicals(t: Technicals) -> tuple[float, list[str]]:
 
     # 5. Trend quality. Buying dips only pays inside an uptrend -- this is the
     #    single most important guard against catching a falling knife.
-    if t.sma200 is not None:
-        rel = (t.close - t.sma200) / t.sma200 * 100
+    if t.trend_ma is not None:
+        label = "200d MA" if t.trend_basis == "200d" else "40w MA"
+        rel = (t.close - t.trend_ma) / t.trend_ma * 100
         if rel > 0:
-            score += W_TREND; reasons.append("above 200d MA (uptrend intact)")
+            score += W_TREND; reasons.append(f"above {label} (uptrend intact)")
         elif rel > -3:
-            score += W_TREND * 0.47; reasons.append("just below 200d MA")
+            score += W_TREND * 0.47; reasons.append(f"just below {label}")
         else:
-            reasons.append(f"{abs(rel):.1f}% below 200d MA (downtrend)")
+            reasons.append(f"{abs(rel):.1f}% below {label} (downtrend)")
+    else:
+        # No long-run reference at all: withhold the points rather than assume
+        # a healthy trend, so an unverified setup can never reach a top tier.
+        reasons.append("no long-term trend data (trend points withheld)")
 
     return round(score, 1), reasons
 
@@ -705,9 +961,9 @@ class Regime:
 
 def compute_regime(tech_by_symbol: dict[str, Technicals]) -> Regime:
     bench = tech_by_symbol.get(BENCHMARK)
-    if not bench or bench.sma200 is None:
+    if not bench or bench.trend_ma is None:
         return Regime()
-    spy_vs_200 = (bench.close - bench.sma200) / bench.sma200 * 100
+    spy_vs_200 = (bench.close - bench.trend_ma) / bench.trend_ma * 100
 
     above = [
         1 for t in tech_by_symbol.values()
@@ -786,17 +1042,25 @@ def evaluate(symbol: str, tech: Technicals, news: NewsSignal,
     # This fires on price alone: news is only allowed to RESCUE the setup, never
     # to enable the veto. Gating the veto on news being present would disable it
     # exactly when the news feed is down, which is the worst possible time.
+    # Drawdown reference: prefer the 52-week high from weekly data when we have
+    # it, since 100 daily bars only reach back ~5 months and would understate
+    # how far a name has actually fallen.
+    deep_dd = max(
+        tech.dd_from_high50 or 0,
+        ((tech.high52w - tech.close) / tech.high52w * 100) if tech.high52w else 0,
+    )
     broken_trend = (
-        tech.sma200 is not None
-        and tech.close < tech.sma200
-        and (tech.dd_from_high50 or 0) > 20
+        tech.trend_ma is not None
+        and tech.close < tech.trend_ma
+        and deep_dd > 20
     )
     if broken_trend:
         rescued = news.available and news.score >= 0.15
         if not rescued:
             why = "no positive news to offset" if news.available else "news unavailable"
-            notes.append(f"VETO: {tech.dd_from_high50:.0f}% off 50d high and below "
-                         f"200d MA — {why} (falling knife)")
+            label = "200d MA" if tech.trend_basis == "200d" else "40w MA"
+            notes.append(f"VETO: {deep_dd:.0f}% off the high and below "
+                         f"{label} — {why} (falling knife)")
             return None
         notes.append("broken trend, but news flow is positive — allowed through")
 
@@ -994,6 +1258,15 @@ def cmd_scan(args) -> int:
             continue
         t = compute_technicals(bars)
 
+        # A free key returns 100 daily bars, so sma200 is usually missing. Pull
+        # the weekly series (free, decades deep, cached a week) for the 40-week
+        # average that stands in for it.
+        if t.trend_basis != "200d":
+            try:
+                t = attach_weekly_trend(t, fetch_weekly(sym))
+            except DataError as exc:
+                print(f"  ! {sym} weekly trend: {exc}", file=sys.stderr)
+
         if intraday:
             # Intraday oscillators, daily trend context. If the intraday leg
             # fails we fall back to the daily reading rather than dropping the
@@ -1009,8 +1282,8 @@ def cmd_scan(args) -> int:
                 print(f"  ! {sym} intraday: {exc} — using daily", file=sys.stderr)
 
         tech_by_symbol[sym] = t
-        warn = "" if t.sma200 is not None else "  (no 200d MA — trend filter off)"
-        print(f"  ✓ {sym}: ${t.close:,.2f}  [{len(bars)} bars]{warn}")
+        basis = {"200d": "200d MA", "40w": "40w MA", "none": "NO TREND DATA"}[t.trend_basis]
+        print(f"  ✓ {sym}: ${t.close:,.2f}  [{len(bars)} daily bars, trend={basis}]")
 
     if not tech_by_symbol:
         print("No price data retrieved. Check ALPHAVANTAGE_API_KEY.", file=sys.stderr)
@@ -1023,7 +1296,10 @@ def cmd_scan(args) -> int:
         try:
             bench_bars = fetch_prices(BENCHMARK)
             if len(bench_bars) >= 30:
-                regime_input[BENCHMARK] = compute_technicals(bench_bars)
+                bt = compute_technicals(bench_bars)
+                if bt.trend_basis != "200d":
+                    bt = attach_weekly_trend(bt, fetch_weekly(BENCHMARK))
+                regime_input[BENCHMARK] = bt
         except DataError as exc:
             print(f"  ! benchmark {BENCHMARK} unavailable: {exc}", file=sys.stderr)
 
@@ -1114,13 +1390,27 @@ def cmd_backtest(args) -> int:
         tier: {h: [] for h in horizons} for tier in ("WATCH", "STRONG", "HIGH CONVICTION")
     }
     baseline: dict[int, list[float]] = {h: [] for h in horizons}
+    insufficient: list[str] = []
 
     for sym in symbols:
         try:
-            # Historical bars never change; cache them for a week.
+            # Full history is a PREMIUM endpoint. Try it, and fall back to
+            # whatever daily history has accumulated in the cache -- which grows
+            # a little with every scan.
             bars = fetch_prices(sym, full=True, max_age_hours=168)
         except DataError as exc:
-            print(f"  ! {sym}: {exc}", file=sys.stderr)
+            print(f"  ! {sym}: full history unavailable ({exc})", file=sys.stderr)
+            try:
+                bars = fetch_prices(sym)
+            except DataError as exc2:
+                print(f"  ! {sym}: {exc2}", file=sys.stderr)
+                continue
+
+        need = 220 + max(horizons)
+        if len(bars) < need:
+            print(f"  ! {sym}: only {len(bars)} bars — need ~{need} for a meaningful "
+                  f"backtest. Skipping.", file=sys.stderr)
+            insufficient.append(sym)
             continue
 
         cutoff = datetime.now().date() - timedelta(days=int(365.25 * args.years))
@@ -1173,6 +1463,14 @@ def cmd_backtest(args) -> int:
     print(f"\n{'='*66}")
     print("A tier is only useful if its forward return and win rate beat the")
     print("baseline. If they don't, the thresholds need retuning.")
+    if insufficient:
+        print()
+        print(f"! {len(insufficient)} symbol(s) had too little history to test: "
+              f"{', '.join(insufficient)}")
+        print("  A free Alpha Vantage key returns 100 daily bars and full history")
+        print("  is a premium endpoint, so there is not enough data to validate")
+        print("  thresholds yet. The cache accumulates ~21 bars a month as scans")
+        print("  run, or a premium key / alternative data source fixes it at once.")
     return 0
 
 
