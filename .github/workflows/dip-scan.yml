@@ -1,0 +1,78 @@
+name: Dip Scan
+
+# Two jobs share one Alpha Vantage free-tier budget of 25 requests/day:
+#   eod       21 price calls + 1 batched news call = 22
+#   intraday   3 price calls                       =  3
+#                                                    ---
+#                                                     25
+# That is exact, with no headroom. If you widen either watchlist, get a premium
+# key and raise AV_DAILY_LIMIT, or the tool will stop early by design rather
+# than fail halfway through with a rate-limit error.
+
+on:
+  schedule:
+    # 21:15 UTC = 5:15pm ET (EDT) — after the close, on settled daily bars.
+    - cron: "15 21 * * 1-5"
+    # 15:30 UTC = 11:30am ET (EDT) — one midday intraday sweep.
+    - cron: "30 15 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      intraday:
+        description: "Run the intraday scan instead of end-of-day"
+        type: boolean
+        default: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Persist the price/filing cache and alert-dedupe state between runs so
+      # the tool stays inside the request budget and does not re-alert the same
+      # setup daily. The intraday job reuses the daily bars the EOD job cached,
+      # which is what keeps intraday down to one request per symbol.
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache
+            state.json
+          key: dip-scan-${{ github.run_id }}
+          restore-keys: dip-scan-
+
+      # The midday cron and the manual toggle both mean "intraday".
+      - name: Select mode
+        id: mode
+        run: |
+          if [ "${{ github.event.schedule }}" = "30 15 * * 1-5" ] \
+             || [ "${{ inputs.intraday }}" = "true" ]; then
+            echo "flag=--intraday" >> "$GITHUB_OUTPUT"
+          else
+            echo "flag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run scan
+        env:
+          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          # Optional: set these as repo *variables* to enable position sizing.
+          ACCOUNT_SIZE: ${{ vars.ACCOUNT_SIZE }}
+          RISK_PCT: ${{ vars.RISK_PCT }}
+          MAX_POSITION_PCT: ${{ vars.MAX_POSITION_PCT }}
+        run: python signal_tool.py scan ${{ steps.mode.outputs.flag }}
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python test_signal_tool.py
