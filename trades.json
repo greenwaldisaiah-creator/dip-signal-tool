@@ -1,0 +1,56 @@
+{
+  "open": [
+    {
+      "symbol": "AMZN",
+      "opened_at": "2026-08-13T16:25:10.812877+00:00",
+      "entry": 265.1,
+      "stop": 250.45,
+      "target": 274.87,
+      "shares": 0.377216,
+      "cost": 100.0,
+      "tier": "HIGH CONVICTION",
+      "score": 74.0,
+      "mode": "intraday",
+      "alerted": true,
+      "rr": 0.67,
+      "target_pct": 3.69,
+      "stop_pct": 5.53,
+      "hold_days_est": 2
+    },
+    {
+      "symbol": "GOOGL",
+      "opened_at": "2026-08-13T16:25:10.812892+00:00",
+      "entry": 342.48,
+      "stop": 324.21,
+      "target": 354.67,
+      "shares": 0.291988,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 45.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 3.56,
+      "stop_pct": 5.33,
+      "hold_days_est": 2
+    },
+    {
+      "symbol": "XLB",
+      "opened_at": "2026-08-13T16:25:10.812899+00:00",
+      "entry": 52.27,
+      "stop": 50.89,
+      "target": 53.2,
+      "shares": 1.913143,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.78,
+      "stop_pct": 2.64,
+      "hold_days_est": 3
+    }
+  ],
+  "closed": []
+}
