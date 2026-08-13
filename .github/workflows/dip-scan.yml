@@ -117,6 +117,9 @@ jobs:
           INTRADAY_MIN_SCORE: ${{ vars.INTRADAY_MIN_SCORE }}
           # Set to 70 to alert only on HIGH CONVICTION setups.
           ALERT_MIN_SCORE: ${{ vars.ALERT_MIN_SCORE }}
+          # Trading costs. Slippage hits stop/time exits only.
+          SLIPPAGE_BPS: ${{ vars.SLIPPAGE_BPS }}
+          COMMISSION_USD: ${{ vars.COMMISSION_USD }}
           PAPER_TRADE_USD: ${{ vars.PAPER_TRADE_USD }}
           PAPER_MAX_HOLD_DAYS: ${{ vars.PAPER_MAX_HOLD_DAYS }}
         run: python signal_tool.py ${{ steps.select.outputs.cmd }}
