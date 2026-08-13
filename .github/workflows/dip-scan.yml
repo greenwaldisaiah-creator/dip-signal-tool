@@ -1,5 +1,10 @@
 name: Dip Scan
 
+# Action versions are pinned to majors that run on Node 24. Node 20 is being
+# removed from GitHub-hosted runners in Fall 2026, after which workflows that
+# still reference Node 20 actions fail outright rather than warning.
+#   checkout v5+ / setup-python v6+ / cache v5+  are Node 24.
+
 # Data budget:
 #   Without TWELVEDATA_API_KEY -- Alpha Vantage only, 25 requests/day. The
 #     watchlist self-limits to 11 symbols and the long-run trend comes from the
@@ -60,9 +65,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          # This job commits history back to the repo, so it needs the token
+          # kept in the local git config and enough history to rebase onto.
+          persist-credentials: true
+          fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -71,7 +81,7 @@ jobs:
       # setup daily. The intraday run reuses the daily bars the end-of-day run
       # cached, which is what keeps intraday to one request per symbol.
       - name: Restore cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: cache
           key: dip-scan-${{ github.run_id }}
@@ -165,12 +175,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+        with:
+          # This job commits history back to the repo, so it needs the token
+          # kept in the local git config and enough history to rebase onto.
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Restore cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: cache
           key: dip-scan-${{ github.run_id }}
@@ -213,12 +228,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Restore cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: cache
           key: dip-scan-${{ github.run_id }}
@@ -236,8 +251,8 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - run: python test_signal_tool.py
