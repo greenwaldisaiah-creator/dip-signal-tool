@@ -267,6 +267,11 @@ RISK_OFF_PENALTY = 10  # thresholds rise by this much when SPY < SMA200
 # failing to beat the baseline, which is the common outcome.
 ALERT_MIN_SCORE = env_float("ALERT_MIN_SCORE", float(TIER_WATCH))
 
+# Paper-trade every qualifying setup, including ones below the alert threshold.
+# Costs nothing, sends no extra notifications, and builds the evidence needed to
+# confirm the muted tiers really are worse -- roughly 3x faster than alerts alone.
+TRACK_ALL_TIERS = env_str("TRACK_ALL_TIERS", "1").lower() not in ("0", "false", "no")
+
 RESEND_AFTER_DAYS = 5  # don't re-alert the same ticker/tier inside this window
 
 
@@ -1476,7 +1481,8 @@ def save_trades(t: dict) -> None:
     TRADES_FILE.write_text(json.dumps(t, indent=2))
 
 
-def open_paper_trade(book: dict, sig: Signal, intraday: bool) -> bool:
+def open_paper_trade(book: dict, sig: Signal, intraday: bool,
+                     alerted: bool = True) -> bool:
     """Record a simulated entry. One open position per symbol at a time."""
     if not sig.plan:
         return False
@@ -1491,6 +1497,7 @@ def open_paper_trade(book: dict, sig: Signal, intraday: bool) -> bool:
         "cost": PAPER_TRADE_USD,
         "tier": sig.tier, "score": sig.final_score,
         "mode": "intraday" if intraday else "eod",
+        "alerted": alerted,
         "rr": pl.rr, "target_pct": pl.target_pct, "stop_pct": pl.stop_pct,
         "hold_days_est": pl.hold_days_est,
     })
@@ -1775,19 +1782,30 @@ def cmd_scan(args) -> int:
     min_score = tuned_min_score(tuned, intraday)
     if tuned.get("halted"):
         print(f"  ! CIRCUIT BREAKER ACTIVE — only score ≥{min_score:.0f} alerts fire")
-    signals: list[Signal] = []
+    # Alerting and tracking are deliberately separate. You are notified only
+    # above `min_score`, but every qualifying setup can still be paper-traded --
+    # which accumulates evidence roughly 3x faster and keeps measuring whether
+    # the muted tiers really do underperform, at no cost in phone noise.
+    all_signals: list[Signal] = []
     for sym, tech in tech_by_symbol.items():
         # Only spend SEC requests on names that already look technically interesting.
         prelim, _ = score_technicals(tech)
         flow = fetch_flow(sym) if (prelim >= TIER_WATCH - 10 and not args.no_flow) else FlowSignal()
         sig = evaluate(sym, tech, news_by_symbol.get(sym, NewsSignal()), flow, regime)
-        if sig and sig.final_score < min_score:
-            continue        # below the (possibly auto-tuned) alert threshold
         if sig:
-            signals.append(sig)
+            all_signals.append(sig)
 
-    signals.sort(key=lambda s: -s.final_score)
+    all_signals.sort(key=lambda s: -s.final_score)
+    signals = [s for s in all_signals if s.final_score >= min_score]
+    muted = [s for s in all_signals if s.final_score < min_score]
+    if muted:
+        print(f"  ({len(muted)} setup(s) below the {min_score:.0f} alert threshold"
+              f"{' — tracked silently' if TRACK_ALL_TIERS else ' — ignored'})")
 
+    if TRACK_ALL_TIERS and not signals:
+        for sgl in muted:
+            if open_paper_trade(book, sgl, intraday, alerted=False):
+                print(f"  → tracked (no alert): {sgl.symbol} @ ${sgl.plan.entry:,.2f}")
     save_trades(book)
     persist_usage()
     if not signals:
@@ -1808,10 +1826,14 @@ def cmd_scan(args) -> int:
         print(av_budget_report())
         return 0
 
-    for sgl in fresh:
-        if open_paper_trade(book, sgl, intraday):
+    alerted_syms = {s.symbol for s in fresh}
+    to_track = (fresh + muted) if TRACK_ALL_TIERS else fresh
+    for sgl in to_track:
+        if open_paper_trade(book, sgl, intraday,
+                            alerted=sgl.symbol in alerted_syms):
+            tag = "" if sgl.symbol in alerted_syms else "  [tracked only, not alerted]"
             print(f"  → paper trade opened: {sgl.symbol} "
-                  f"${PAPER_TRADE_USD:.0f} @ ${sgl.plan.entry:,.2f}")
+                  f"${PAPER_TRADE_USD:.0f} @ ${sgl.plan.entry:,.2f}{tag}")
     save_trades(book)
 
     message = format_message(fresh, regime, intraday=intraday,
@@ -1867,7 +1889,41 @@ def cmd_history(args) -> int:
 
     if not book["open"] and not closed:
         print("\nNo paper trades recorded yet. They open automatically on each alert.")
+        if args.telegram:
+            telegram_send(
+                "<b>Paper Trading Report</b>\nNo trades recorded yet.\n\n"
+                "Positions open automatically when a setup qualifies. With "
+                f"ALERT_MIN_SCORE={ALERT_MIN_SCORE:.0f} expect roughly one every "
+                "few trading days.")
         return 0
+
+    def _bucket(rows: list[dict]) -> str:
+        if not rows:
+            return f"{'—':>6}{'':>9}{'':>9}{'':>9}"
+        wins = [r for r in rows if r.get("pnl", 0) > 0]
+        gw = sum(r["pnl"] for r in wins)
+        gl = abs(sum(r["pnl"] for r in rows if r.get("pnl", 0) <= 0))
+        avg = sum(r.get("pnl_pct", 0) for r in rows) / len(rows)
+        pf_ = f"{gw/gl:.2f}" if gl > 0 else "n/a"
+        return (f"{len(rows):>6}{len(wins)/len(rows)*100:>8.1f}%"
+                f"{avg:>9.2f}%{pf_:>9}")
+
+    allc = book["closed"]
+    if allc:
+        print(f"\n{'='*66}")
+        print("BY TIER  (all tracked setups, whether or not they alerted)")
+        print(f"{'TIER':<18}{'N':>6}{'WIN%':>9}{'AVG%':>9}{'PF':>9}")
+        print("-" * 66)
+        for tier in ("WATCH", "STRONG", "HIGH CONVICTION"):
+            print(f"{tier:<18}" + _bucket([r for r in allc if r.get("tier") == tier]))
+        alerted = [r for r in allc if r.get("alerted", True)]
+        silent = [r for r in allc if not r.get("alerted", True)]
+        if silent:
+            print("-" * 66)
+            print(f"{'alerted to you':<18}" + _bucket(alerted))
+            print(f"{'tracked silently':<18}" + _bucket(silent))
+            print("\n  If the silent rows keep underperforming, the alert threshold")
+            print("  is doing its job. If they catch up, reconsider lowering it.")
 
     pf = f"{st['profit_factor']:.2f}" if st["profit_factor"] is not None else "n/a"
     print(f"\n{'='*66}")
