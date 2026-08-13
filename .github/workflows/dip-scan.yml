@@ -31,6 +31,13 @@ on:
           - intraday            # 15-minute bars, daily trend context
           - end-of-day-notify   # scan, and message even if nothing qualifies
           - telegram-test       # just prove the bot can reach your phone
+          - history             # paper-trading log + performance summary
+          - backtest            # replay the strategy over years of history
+      years:
+        description: "Backtest only: years of history to replay"
+        type: string
+        default: "3"
+
 
 # A slow run must never overlap the next 15-minute tick. Queued runs are
 # cancelled rather than piling up and double-spending the credit budget.
@@ -40,6 +47,7 @@ concurrency:
 
 jobs:
   scan:
+    if: inputs.mode != 'backtest'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -59,6 +67,7 @@ jobs:
           path: |
             cache
             state.json
+            trades.json
           key: dip-scan-${{ github.run_id }}
           restore-keys: dip-scan-
 
@@ -79,6 +88,7 @@ jobs:
           fi
           case "$MODE" in
             telegram-test)      CMD="test-telegram" ;;
+            history)            CMD="history --telegram" ;;
             intraday)           CMD="scan --intraday" ;;
             end-of-day-notify)  CMD="scan --always-send" ;;
             *)                  CMD="scan" ;;
@@ -101,7 +111,38 @@ jobs:
           MAX_POSITION_PCT: ${{ vars.MAX_POSITION_PCT }}
           # Intraday fires 27x/day, so it holds a higher bar than end-of-day.
           INTRADAY_MIN_SCORE: ${{ vars.INTRADAY_MIN_SCORE }}
+          PAPER_TRADE_USD: ${{ vars.PAPER_TRADE_USD }}
+          PAPER_MAX_HOLD_DAYS: ${{ vars.PAPER_MAX_HOLD_DAYS }}
         run: python signal_tool.py ${{ steps.select.outputs.cmd }}
+
+  backtest:
+    # Manual only. Needs far longer than a scan tick: it pulls full history for
+    # every symbol at the free tier's 8 requests/minute, then replays years of
+    # bars through the same entry/stop/target rules the live tracker uses.
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'backtest'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache
+            state.json
+            trades.json
+          key: dip-scan-${{ github.run_id }}
+          restore-keys: dip-scan-
+      - name: Run backtest
+        env:
+          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python signal_tool.py backtest --years "${{ inputs.years || '3' }}" --telegram
 
   test:
     # Only on manual runs and pushes -- not on all 27 daily scheduled ticks.
