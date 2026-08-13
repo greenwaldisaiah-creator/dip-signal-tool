@@ -672,6 +672,7 @@ class Technicals:
     trend_ma: float | None = None
     trend_basis: str = "none"      # "200d" | "40w" | "none"
     high52w: float | None = None
+    ann_vol_pct: float | None = None   # annualised realised volatility
 
 
 def compute_technicals(bars: list[Bar]) -> Technicals:
@@ -704,7 +705,20 @@ def compute_technicals(bars: list[Bar]) -> Technicals:
         atr_pct=((atr(bars) or 0) / close * 100) if close else None,
         trend_ma=s200,
         trend_basis="200d" if s200 is not None else "none",
+        ann_vol_pct=_ann_vol(closes),
     )
+
+
+def _ann_vol(closes: list[float], period: int = 20) -> float | None:
+    """Annualised realised volatility from daily returns (252 trading days)."""
+    if len(closes) < period + 1:
+        return None
+    rets = [(b - a) / a for a, b in zip(closes[-(period + 1):-1], closes[-period:]) if a]
+    if len(rets) < 2:
+        return None
+    mean = sum(rets) / len(rets)
+    var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+    return math.sqrt(var) * math.sqrt(252) * 100
 
 
 def attach_weekly_trend(t: Technicals, weekly: list[Bar]) -> Technicals:
@@ -1067,6 +1081,84 @@ def compute_regime(tech_by_symbol: dict[str, Technicals]) -> Regime:
 # --------------------------------------------------------------------------
 
 @dataclass
+class TradePlan:
+    """Concrete levels for a signal, derived from the instrument's volatility.
+
+    Nothing here is a forecast. The target is a mean-reversion level (the
+    20-day average, which is the middle Bollinger band the price has fallen
+    away from), the stop is a volatility multiple, and the holding estimate is
+    simply distance-to-target divided by the average daily range. They describe
+    a plan, not a prediction -- whether the plan actually pays is what the
+    paper-trading tracker measures.
+    """
+    entry: float
+    stop: float
+    target: float
+    risk_per_share: float
+    reward_per_share: float
+    rr: float                  # reward-to-risk ratio
+    target_pct: float          # % gain if the target is reached
+    stop_pct: float            # % loss if the stop is hit
+    hold_days_est: int         # ATR-based estimate of bars to target
+    atr_pct: float | None
+    ann_vol_pct: float | None
+
+
+def build_trade_plan(t: Technicals) -> TradePlan | None:
+    """Entry / stop / target for a dip signal, or None if inputs are unusable."""
+    if not t.close or not t.atr_pct or t.atr_pct <= 0:
+        return None
+    atr = t.close * t.atr_pct / 100
+
+    # Entry: don't chase. If price is still above the lower band, wait for it;
+    # if it has already broken below, the close is the reference.
+    entry = min(t.close, t.bb_lower) if t.bb_lower else t.close
+    if entry <= 0:
+        return None
+
+    stop = entry - 1.5 * atr
+
+    # Target: reversion to the 20-day mean, floored at 1 ATR so a shallow dip
+    # cannot produce a target too close to be worth the risk.
+    target = max(t.sma20 or entry + 2 * atr, entry + atr)
+
+    risk = entry - stop
+    reward = target - entry
+    if risk <= 0 or reward <= 0:
+        return None
+
+    # Holding estimate: how many average daily ranges lie between entry and
+    # target. Mean reversion rarely travels a full ATR of *net* progress per
+    # day, so this uses half an ATR/day and floors at 2 days.
+    hold = max(2, math.ceil(reward / (0.5 * atr)))
+
+    # Round directionally, never favourably: entry and stop DOWN, target UP.
+    # Plain round() can push the entry above the close, turning a "don't chase"
+    # limit into a chase, and can shave a target into being easier to hit.
+    def floor2(x: float) -> float:
+        return math.floor(x * 100) / 100
+
+    def ceil2(x: float) -> float:
+        return math.ceil(x * 100) / 100
+
+    entry, stop, target = floor2(entry), floor2(stop), ceil2(target)
+    risk, reward = entry - stop, target - entry
+    if risk <= 0 or reward <= 0:
+        return None
+
+    return TradePlan(
+        entry=entry, stop=stop, target=target,
+        risk_per_share=round(risk, 2), reward_per_share=round(reward, 2),
+        rr=round(reward / risk, 2),
+        target_pct=round(reward / entry * 100, 2),
+        stop_pct=round(risk / entry * 100, 2),
+        hold_days_est=min(hold, 60),
+        atr_pct=round(t.atr_pct, 2) if t.atr_pct else None,
+        ann_vol_pct=round(t.ann_vol_pct, 1) if t.ann_vol_pct else None,
+    )
+
+
+@dataclass
 class Signal:
     symbol: str
     tier: str
@@ -1082,6 +1174,7 @@ class Signal:
     shares: int | None = None
     risk_usd: float | None = None
     notional: float | None = None
+    plan: TradePlan | None = None
 
 
 def evaluate(symbol: str, tech: Technicals, news: NewsSignal,
@@ -1163,16 +1256,16 @@ def evaluate(symbol: str, tech: Technicals, news: NewsSignal,
 
     # Suggested stop: 1.5 ATR below the close, a volatility-aware level rather
     # than an arbitrary percentage.
-    stop = None
-    if tech.atr_pct:
-        stop = round(tech.close * (1 - 1.5 * tech.atr_pct / 100), 2)
-
-    shares, risk_usd, notional = position_size(tech.close, stop)
+    plan = build_trade_plan(tech)
+    stop = plan.stop if plan else None
+    entry = plan.entry if plan else tech.close
+    shares, risk_usd, notional = position_size(entry, stop)
 
     return Signal(
         symbol=symbol, tier=tier, final_score=round(score, 1), tech_score=tech_score,
         price=tech.close, reasons=reasons, notes=notes, news=news, flow=flow,
         tech=tech, stop_hint=stop, shares=shares, risk_usd=risk_usd, notional=notional,
+        plan=plan,
     )
 
 
@@ -1237,7 +1330,8 @@ def telegram_send(text: str) -> bool:
 TIER_ICON = {"HIGH CONVICTION": "🟢", "STRONG": "🟡", "WATCH": "⚪"}
 
 
-def format_message(signals: list[Signal], regime: Regime, intraday: bool = False) -> str:
+def format_message(signals: list[Signal], regime: Regime, intraday: bool = False,
+                   stats: dict | None = None) -> str:
     stamp = datetime.now(timezone.utc).astimezone()
     today = stamp.strftime("%b %d, %Y %H:%M" if intraday else "%b %d, %Y")
     lines = [
@@ -1254,7 +1348,17 @@ def format_message(signals: list[Signal], regime: Regime, intraday: bool = False
             lines.append(f"   • {r}")
         for n in s.notes[:3]:
             lines.append(f"   › {n}")
-        if s.stop_hint:
+        if s.plan:
+            pl = s.plan
+            lines.append(f"   🎯 Buy ≤ <b>${pl.entry:,.2f}</b>  ·  "
+                         f"Stop <b>${pl.stop:,.2f}</b> (−{pl.stop_pct:.1f}%)")
+            lines.append(f"   💰 Target <b>${pl.target:,.2f}</b> (+{pl.target_pct:.1f}%)  ·  "
+                         f"R:R <b>{pl.rr:.2f}</b>")
+            lines.append(f"   ⏱ Est. hold ~{pl.hold_days_est}d  ·  "
+                         f"ATR {pl.atr_pct:.1f}%/day  ·  vol {pl.ann_vol_pct:.0f}%/yr"
+                         if pl.ann_vol_pct else
+                         f"   ⏱ Est. hold ~{pl.hold_days_est}d  ·  ATR {pl.atr_pct:.1f}%/day")
+        elif s.stop_hint:
             lines.append(f"   ⚠ 1.5·ATR stop ≈ ${s.stop_hint:,.2f}")
         if s.shares:
             # Report the risk actually taken, not the configured target: the
@@ -1266,8 +1370,154 @@ def format_message(signals: list[Signal], regime: Regime, intraday: bool = False
         if s.news.headlines:
             lines.append(f"   📰 {s.news.headlines[0][:110]}")
         lines.append("")
+    if stats:
+        lines.append(paper_summary_line(stats))
     lines.append("<i>Signal output, not investment advice. Position size accordingly.</i>")
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# Paper trading -- the honest scoreboard
+# --------------------------------------------------------------------------
+# Every alert opens a simulated $100 position. Positions are resolved against
+# real subsequent bars, so this measures what the alerts would actually have
+# done rather than what the scoring model hoped. This is the only part of the
+# tool that can tell you whether the signal is worth anything.
+
+PAPER_TRADE_USD = float(os.environ.get("PAPER_TRADE_USD", "100"))
+PAPER_MAX_HOLD_DAYS = int(os.environ.get("PAPER_MAX_HOLD_DAYS", "30"))
+TRADES_FILE = BASE_DIR / "trades.json"
+
+
+def load_trades() -> dict:
+    if TRADES_FILE.exists():
+        try:
+            d = json.loads(TRADES_FILE.read_text())
+            d.setdefault("open", [])
+            d.setdefault("closed", [])
+            return d
+        except json.JSONDecodeError:
+            pass
+    return {"open": [], "closed": []}
+
+
+def save_trades(t: dict) -> None:
+    TRADES_FILE.write_text(json.dumps(t, indent=2))
+
+
+def open_paper_trade(book: dict, sig: Signal, intraday: bool) -> bool:
+    """Record a simulated entry. One open position per symbol at a time."""
+    if not sig.plan:
+        return False
+    if any(t["symbol"] == sig.symbol for t in book["open"]):
+        return False        # already holding this name; don't pyramid
+    pl = sig.plan
+    book["open"].append({
+        "symbol": sig.symbol,
+        "opened_at": datetime.now(timezone.utc).isoformat(),
+        "entry": pl.entry, "stop": pl.stop, "target": pl.target,
+        "shares": round(PAPER_TRADE_USD / pl.entry, 6),
+        "cost": PAPER_TRADE_USD,
+        "tier": sig.tier, "score": sig.final_score,
+        "mode": "intraday" if intraday else "eod",
+        "rr": pl.rr, "target_pct": pl.target_pct, "stop_pct": pl.stop_pct,
+        "hold_days_est": pl.hold_days_est,
+    })
+    return True
+
+
+def resolve_paper_trades(book: dict, bars_by_symbol: dict[str, list[Bar]]) -> list[dict]:
+    """Close any open position whose stop, target or time limit was reached.
+
+    Resolution uses the daily high/low of bars *after* entry. When a single bar
+    touches both the stop and the target, the stop is assumed to have hit first:
+    without intraday sequencing there is no way to know the order, and assuming
+    the good outcome would flatter every result.
+    """
+    still_open, newly_closed = [], []
+    now = datetime.now(timezone.utc)
+
+    for tr in book["open"]:
+        bars = bars_by_symbol.get(tr["symbol"])
+        if not bars:
+            still_open.append(tr)
+            continue
+        try:
+            opened = datetime.fromisoformat(tr["opened_at"])
+        except (ValueError, TypeError):
+            opened = now
+        open_date = opened.date().isoformat()
+
+        exit_price, exit_reason, exit_date = None, None, None
+        for b in bars:
+            if b.date[:10] <= open_date:
+                continue
+            if b.low <= tr["stop"]:
+                exit_price, exit_reason, exit_date = tr["stop"], "stop", b.date
+                break
+            if b.high >= tr["target"]:
+                exit_price, exit_reason, exit_date = tr["target"], "target", b.date
+                break
+
+        if exit_price is None:
+            held = (now - opened).days
+            if held >= PAPER_MAX_HOLD_DAYS:
+                exit_price = bars[-1].close
+                exit_reason, exit_date = "time", bars[-1].date
+            else:
+                still_open.append(tr)
+                continue
+
+        pnl = (exit_price - tr["entry"]) * tr["shares"]
+        closed = dict(tr)
+        closed.update({
+            "exit": round(exit_price, 2), "exit_reason": exit_reason,
+            "exit_date": exit_date, "closed_at": now.isoformat(),
+            "pnl": round(pnl, 2),
+            "pnl_pct": round((exit_price - tr["entry"]) / tr["entry"] * 100, 2),
+        })
+        newly_closed.append(closed)
+
+    book["open"] = still_open
+    book["closed"].extend(newly_closed)
+    return newly_closed
+
+
+def paper_stats(book: dict) -> dict:
+    closed = book.get("closed", [])
+    wins = [t for t in closed if t.get("pnl", 0) > 0]
+    losses = [t for t in closed if t.get("pnl", 0) <= 0]
+    gross_win = sum(t["pnl"] for t in wins)
+    gross_loss = abs(sum(t["pnl"] for t in losses))
+    total = sum(t.get("pnl", 0) for t in closed)
+    invested = sum(t.get("cost", PAPER_TRADE_USD) for t in closed)
+    return {
+        "trades": len(closed),
+        "open": len(book.get("open", [])),
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate": (len(wins) / len(closed) * 100) if closed else 0.0,
+        "total_pnl": round(total, 2),
+        "return_pct": round(total / invested * 100, 2) if invested else 0.0,
+        # Profit factor: gross wins / gross losses. Above 1.0 is profitable.
+        # With no losses yet it is undefined, not infinite -- report None.
+        "profit_factor": round(gross_win / gross_loss, 2) if gross_loss > 0 else None,
+        "avg_win": round(gross_win / len(wins), 2) if wins else 0.0,
+        "avg_loss": round(-gross_loss / len(losses), 2) if losses else 0.0,
+        "best": max((t["pnl"] for t in closed), default=0.0),
+        "worst": min((t["pnl"] for t in closed), default=0.0),
+    }
+
+
+def paper_summary_line(st: dict) -> str:
+    if not st["trades"]:
+        return f"📊 Paper: no closed trades yet ({st['open']} open)"
+    pf = f"{st['profit_factor']:.2f}" if st["profit_factor"] is not None else "—"
+    sign = "+" if st["total_pnl"] >= 0 else ""
+    return (f"📊 Paper: {st['wins']}W/{st['losses']}L "
+            f"({st['win_rate']:.0f}%) · PF {pf} · "
+            f"{sign}${st['total_pnl']:.2f} ({sign}{st['return_pct']:.1f}%) · "
+            f"{st['open']} open")
 
 
 # --------------------------------------------------------------------------
@@ -1338,6 +1588,7 @@ def cmd_scan(args) -> int:
     print(f"Scanning {len(symbols)} symbols ({mode})...")
 
     tech_by_symbol: dict[str, Technicals] = {}
+    bars_by_symbol: dict[str, list[Bar]] = {}
     for sym in symbols:
         try:
             bars = fetch_prices(sym)
@@ -1372,6 +1623,7 @@ def cmd_scan(args) -> int:
             except DataError as exc:
                 print(f"  ! {sym} intraday: {exc} — using daily", file=sys.stderr)
 
+        bars_by_symbol[sym] = bars
         tech_by_symbol[sym] = t
         basis = {"200d": "200d MA", "40w": "40w MA", "none": "NO TREND DATA"}[t.trend_basis]
         print(f"  ✓ {sym}: ${t.close:,.2f}  [{len(bars)} daily bars, trend={basis}]")
@@ -1394,6 +1646,13 @@ def cmd_scan(args) -> int:
         except DataError as exc:
             print(f"  ! benchmark {BENCHMARK} unavailable: {exc}", file=sys.stderr)
 
+    # Settle any open paper positions against today's bars before scoring.
+    book = load_trades()
+    closed_now = resolve_paper_trades(book, bars_by_symbol)
+    for c in closed_now:
+        print(f"  → closed {c['symbol']}: {c['exit_reason']} "
+              f"@ ${c['exit']:,.2f}  {c['pnl']:+.2f} ({c['pnl_pct']:+.1f}%)")
+
     regime = compute_regime(regime_input)
     if regime.label == "unknown":
         print("  ! regime unknown — running without the risk-off gate", file=sys.stderr)
@@ -1415,6 +1674,7 @@ def cmd_scan(args) -> int:
 
     signals.sort(key=lambda s: -s.final_score)
 
+    save_trades(book)
     persist_usage()
     if not signals:
         print("\nNo qualifying dips today.")
@@ -1434,7 +1694,14 @@ def cmd_scan(args) -> int:
         print(av_budget_report())
         return 0
 
-    message = format_message(fresh, regime, intraday=intraday)
+    for sgl in fresh:
+        if open_paper_trade(book, sgl, intraday):
+            print(f"  → paper trade opened: {sgl.symbol} "
+                  f"${PAPER_TRADE_USD:.0f} @ ${sgl.plan.entry:,.2f}")
+    save_trades(book)
+
+    message = format_message(fresh, regime, intraday=intraday,
+                             stats=paper_stats(book))
     if args.dry_run:
         print("\n--- DRY RUN, message not sent ---\n")
         print(message)
@@ -1451,6 +1718,66 @@ def cmd_scan(args) -> int:
         save_state(state)
     persist_usage()
     print(av_budget_report())
+    return 0
+
+
+def cmd_history(args) -> int:
+    """Print the paper-trading log and performance summary."""
+    book = load_trades()
+    st = paper_stats(book)
+    closed = sorted(book["closed"], key=lambda t: t.get("closed_at", ""), reverse=True)
+    if args.limit:
+        closed = closed[: args.limit]
+
+    if book["open"]:
+        print(f"\nOPEN POSITIONS ({len(book['open'])})")
+        print(f"{'SYM':<7}{'OPENED':<12}{'ENTRY':>9}{'STOP':>9}{'TARGET':>9}"
+              f"{'R:R':>6}  TIER")
+        print("-" * 66)
+        for t in sorted(book["open"], key=lambda x: x["opened_at"]):
+            print(f"{t['symbol']:<7}{t['opened_at'][:10]:<12}"
+                  f"{t['entry']:>9,.2f}{t['stop']:>9,.2f}{t['target']:>9,.2f}"
+                  f"{t.get('rr', 0):>6.2f}  {t.get('tier', '')}")
+
+    if closed:
+        print(f"\nCLOSED TRADES ({len(closed)} shown of {st['trades']})")
+        print(f"{'SYM':<7}{'OPENED':<12}{'CLOSED':<12}{'ENTRY':>9}{'EXIT':>9}"
+              f"{'P/L':>9}{'%':>8}  WHY")
+        print("-" * 82)
+        for t in closed:
+            print(f"{t['symbol']:<7}{t['opened_at'][:10]:<12}"
+                  f"{str(t.get('closed_at', ''))[:10]:<12}"
+                  f"{t['entry']:>9,.2f}{t.get('exit', 0):>9,.2f}"
+                  f"{t.get('pnl', 0):>+9.2f}{t.get('pnl_pct', 0):>+8.1f}"
+                  f"  {t.get('exit_reason', '')}")
+
+    if not book["open"] and not closed:
+        print("\nNo paper trades recorded yet. They open automatically on each alert.")
+        return 0
+
+    pf = f"{st['profit_factor']:.2f}" if st["profit_factor"] is not None else "n/a"
+    print(f"\n{'='*66}")
+    print(f"PAPER PERFORMANCE  (${PAPER_TRADE_USD:.0f} simulated per alert)")
+    print(f"{'='*66}")
+    print(f"  Closed trades   {st['trades']}          Open  {st['open']}")
+    print(f"  Win / loss      {st['wins']}W / {st['losses']}L  ({st['win_rate']:.1f}% win rate)")
+    print(f"  Total P/L       ${st['total_pnl']:+,.2f}  ({st['return_pct']:+.2f}% on capital deployed)")
+    print(f"  Profit factor   {pf}   (gross wins / gross losses; >1.0 is profitable)")
+    print(f"  Avg win/loss    ${st['avg_win']:+,.2f} / ${st['avg_loss']:+,.2f}")
+    print(f"  Best / worst    ${st['best']:+,.2f} / ${st['worst']:+,.2f}")
+    print(f"{'='*66}")
+    if st["trades"] < 30:
+        print("! Fewer than 30 closed trades — too small a sample to conclude")
+        print("  anything. Treat these numbers as provisional.")
+
+    if args.telegram:
+        rows = "\n".join(
+            f"{t['symbol']} {t.get('pnl',0):+.2f} ({t.get('pnl_pct',0):+.1f}%) {t.get('exit_reason','')}"
+            for t in closed[:10])
+        telegram_send(
+            f"<b>Paper Trading Report</b>\n{paper_summary_line(st)}\n\n"
+            f"<b>Recent closes</b>\n<pre>{rows or 'none yet'}</pre>"
+        )
     return 0
 
 
@@ -1472,26 +1799,89 @@ def cmd_refresh_flow(args) -> int:
     return 0
 
 
-def cmd_backtest(args) -> int:
-    """Walk the technical rules through history and measure forward returns.
+def simulate_trade(bars: list[Bar], signal_idx: int, plan: TradePlan,
+                   max_hold: int = 30, fill_window: int = 3) -> dict | None:
+    """Run one trade plan forward through real bars.
 
-    Only the technical layer is backtested: news sentiment and Form 4 history
-    are not available point-in-time from these endpoints, so including them
-    would leak lookahead bias into the results.
+    Uses exactly the rules the paper tracker uses, so backtest and live results
+    are directly comparable:
+      * The entry is a LIMIT below the signal bar's close. If no bar within
+        `fill_window` trades down to it, there is no trade at all -- counting
+        unfilled limits as wins is a classic way to fake a backtest.
+      * Stop is checked before target on every bar, including the fill bar.
+      * Anything still open after `max_hold` bars exits at the close.
+    """
+    fill_idx = None
+    for j in range(signal_idx + 1, min(signal_idx + 1 + fill_window, len(bars))):
+        if bars[j].low <= plan.entry:
+            fill_idx = j
+            break
+    if fill_idx is None:
+        return None                      # limit never filled
+
+    for k in range(fill_idx, min(fill_idx + max_hold + 1, len(bars))):
+        b = bars[k]
+        if b.low <= plan.stop:           # stop always checked first
+            return {"exit_reason": "stop", "exit": plan.stop,
+                    "pnl_pct": (plan.stop - plan.entry) / plan.entry * 100,
+                    "days": k - fill_idx}
+        if b.high >= plan.target:
+            return {"exit_reason": "target", "exit": plan.target,
+                    "pnl_pct": (plan.target - plan.entry) / plan.entry * 100,
+                    "days": k - fill_idx}
+
+    last = bars[min(fill_idx + max_hold, len(bars) - 1)]
+    return {"exit_reason": "time", "exit": last.close,
+            "pnl_pct": (last.close - plan.entry) / plan.entry * 100,
+            "days": min(max_hold, len(bars) - 1 - fill_idx)}
+
+
+def _agg(trades: list[dict]) -> dict:
+    if not trades:
+        return {"n": 0}
+    wins = [t for t in trades if t["pnl_pct"] > 0]
+    losses = [t for t in trades if t["pnl_pct"] <= 0]
+    gw = sum(t["pnl_pct"] for t in wins)
+    gl = abs(sum(t["pnl_pct"] for t in losses))
+    return {
+        "n": len(trades),
+        "win_rate": len(wins) / len(trades) * 100,
+        "avg": sum(t["pnl_pct"] for t in trades) / len(trades),
+        "avg_win": (gw / len(wins)) if wins else 0.0,
+        "avg_loss": (-gl / len(losses)) if losses else 0.0,
+        "pf": (gw / gl) if gl > 0 else None,
+        "avg_days": sum(t["days"] for t in trades) / len(trades),
+        "targets": sum(1 for t in trades if t["exit_reason"] == "target"),
+        "stops": sum(1 for t in trades if t["exit_reason"] == "stop"),
+        "times": sum(1 for t in trades if t["exit_reason"] == "time"),
+    }
+
+
+def _fmt_row(label: str, a: dict) -> str:
+    if not a["n"]:
+        return f"  {label:<18} no trades"
+    pf = f"{a['pf']:.2f}" if a["pf"] is not None else " n/a"
+    return (f"  {label:<18} n={a['n']:<5} win {a['win_rate']:5.1f}%  "
+            f"avg {a['avg']:+6.2f}%  PF {pf:>5}  hold {a['avg_days']:4.1f}d")
+
+
+def cmd_backtest(args) -> int:
+    """Replay the strategy over history using the real trade plan.
+
+    Only the technical layer is tested. News sentiment and Form 4 history are
+    not available point-in-time from these endpoints, so including them would
+    leak lookahead bias and make the results look better than they are.
     """
     symbols = args.symbols or WATCHLIST
-    horizons = [5, 10, 20]
-    buckets: dict[str, dict[int, list[float]]] = {
-        tier: {h: [] for h in horizons} for tier in ("WATCH", "STRONG", "HIGH CONVICTION")
-    }
-    baseline: dict[int, list[float]] = {h: [] for h in horizons}
-    insufficient: list[str] = []
+    load_persisted_usage()
+    max_hold = args.max_hold
+
+    by_tier: dict[str, list[dict]] = {"WATCH": [], "STRONG": [], "HIGH CONVICTION": []}
+    baseline: list[dict] = []
+    insufficient, signals_seen, unfilled = [], 0, 0
 
     for sym in symbols:
         try:
-            # Full history is a PREMIUM endpoint. Try it, and fall back to
-            # whatever daily history has accumulated in the cache -- which grows
-            # a little with every scan.
             bars = fetch_prices(sym, full=True, max_age_hours=168)
         except DataError as exc:
             print(f"  ! {sym}: full history unavailable ({exc})", file=sys.stderr)
@@ -1501,72 +1891,113 @@ def cmd_backtest(args) -> int:
                 print(f"  ! {sym}: {exc2}", file=sys.stderr)
                 continue
 
-        need = 220 + max(horizons)
+        need = 220 + max_hold
         if len(bars) < need:
-            print(f"  ! {sym}: only {len(bars)} bars — need ~{need} for a meaningful "
-                  f"backtest. Skipping.", file=sys.stderr)
+            print(f"  ! {sym}: only {len(bars)} bars — need ~{need}. Skipping.",
+                  file=sys.stderr)
             insufficient.append(sym)
             continue
 
         cutoff = datetime.now().date() - timedelta(days=int(365.25 * args.years))
-        start_idx = next(
-            (i for i, b in enumerate(bars)
-             if datetime.strptime(b.date, "%Y-%m-%d").date() >= cutoff),
-            0,
-        )
-        start_idx = max(start_idx, 220)  # need 200d MA warmup
-        if start_idx >= len(bars) - max(horizons):
-            continue
+        start_idx = next((i for i, b in enumerate(bars)
+                          if b.date[:10] >= cutoff.isoformat()), 0)
+        start_idx = max(start_idx, 220)          # 200d MA warm-up
+        sym_trades = 0
 
-        hits = 0
-        for i in range(start_idx, len(bars) - max(horizons)):
-            window = bars[: i + 1]
+        for i in range(start_idx, len(bars) - max_hold - 1):
+            # A 260-bar window is all any indicator here needs, and keeps this
+            # loop linear instead of quadratic over decades of history.
+            window = bars[max(0, i - 259): i + 1]
             t = compute_technicals(window)
             sc, _ = score_technicals(t)
 
-            entry = bars[i].close
-            for h in horizons:
-                baseline[h].append((bars[i + h].close - entry) / entry * 100)
+            # Baseline: identical trade mechanics, no signal required. This is
+            # the number every tier has to beat to be worth anything.
+            if i % 5 == 0:
+                bp = build_trade_plan(t)
+                if bp:
+                    r = simulate_trade(bars, i, bp, max_hold)
+                    if r:
+                        baseline.append(r)
 
             tier = ("HIGH CONVICTION" if sc >= TIER_HIGH
                     else "STRONG" if sc >= TIER_STRONG
                     else "WATCH" if sc >= TIER_WATCH else None)
             if not tier:
                 continue
-            hits += 1
-            for h in horizons:
-                buckets[tier][h].append((bars[i + h].close - entry) / entry * 100)
-        print(f"  {sym}: {hits} signal-days over {args.years}y")
+            signals_seen += 1
+            plan = build_trade_plan(t)
+            if not plan:
+                continue
+            res = simulate_trade(bars, i, plan, max_hold)
+            if res is None:
+                unfilled += 1
+                continue
+            res["symbol"] = sym
+            by_tier[tier].append(res)
+            sym_trades += 1
 
-    def stats(xs: list[float]) -> str:
-        if not xs:
-            return "     n/a"
-        mean = sum(xs) / len(xs)
-        win = sum(1 for x in xs if x > 0) / len(xs) * 100
-        return f"{mean:+6.2f}%  win {win:4.1f}%  n={len(xs)}"
+        print(f"  {sym}: {sym_trades} trades over {args.years}y")
 
-    print(f"\n{'='*66}")
-    print(f"BACKTEST — technical layer only, {args.years} years")
-    print(f"{'='*66}")
-    print(f"\n{'Baseline (every day)':<20}")
-    for h in horizons:
-        print(f"  {h:>2}d forward: {stats(baseline[h])}")
+    print(f"\n{'='*72}")
+    print(f"BACKTEST — technical layer only, {args.years}y, "
+          f"{max_hold}d max hold, ${PAPER_TRADE_USD:.0f}/trade")
+    print(f"{'='*72}")
+    b = _agg(baseline)
+    print(_fmt_row("BASELINE", b))
+    print("  (same entry/stop/target mechanics, but every 5th bar, no signal required)")
+    print()
     for tier in ("WATCH", "STRONG", "HIGH CONVICTION"):
-        print(f"\n{tier:<20}")
-        for h in horizons:
-            print(f"  {h:>2}d forward: {stats(buckets[tier][h])}")
-    print(f"\n{'='*66}")
-    print("A tier is only useful if its forward return and win rate beat the")
-    print("baseline. If they don't, the thresholds need retuning.")
+        print(_fmt_row(tier, _agg(by_tier[tier])))
+
+    all_sig = by_tier["WATCH"] + by_tier["STRONG"] + by_tier["HIGH CONVICTION"]
+    a = _agg(all_sig)
+    print()
+    print(_fmt_row("ALL SIGNALS", a))
+    if signals_seen:
+        print(f"\n  Limit orders never filled: {unfilled} of {signals_seen} signals "
+              f"({unfilled / signals_seen * 100:.0f}%)")
+    if a["n"]:
+        print(f"  Exits — target {a['targets']}, stop {a['stops']}, time {a['times']}")
+        print(f"  Actual average hold: {a['avg_days']:.1f} days")
+
+    print(f"\n{'='*72}")
+    verdict = []
+    if not b["n"] or not a["n"]:
+        verdict.append("Not enough data to judge. Get more history before trusting this.")
+    else:
+        edge = a["avg"] - b["avg"]
+        verdict.append(f"Edge over baseline: {edge:+.2f}% per trade.")
+        if edge <= 0:
+            verdict.append("NEGATIVE EDGE — the signal is not beating random entry.")
+            verdict.append("Do not trade these thresholds. They need retuning.")
+        elif a["n"] < 30:
+            verdict.append(f"Only {a['n']} trades — too small to conclude anything.")
+        elif a["pf"] is not None and a["pf"] < 1.2:
+            verdict.append("Positive but thin. Slippage and fees could erase it.")
+        else:
+            verdict.append("Positive edge on this sample. Still a backtest, not a promise:")
+            verdict.append("it assumes limit fills, and ignores slippage and commission.")
+    for line in verdict:
+        print("  " + line)
     if insufficient:
-        print()
-        print(f"! {len(insufficient)} symbol(s) had too little history to test: "
-              f"{', '.join(insufficient)}")
-        print("  A free Alpha Vantage key returns 100 daily bars and full history")
-        print("  is a premium endpoint, so there is not enough data to validate")
-        print("  thresholds yet. The cache accumulates ~21 bars a month as scans")
-        print("  run, or a premium key / alternative data source fixes it at once.")
+        print(f"\n  ! Skipped for lack of history: {', '.join(insufficient)}")
+        print("    A free Alpha Vantage key returns 100 daily bars. Add a Twelve")
+        print("    Data key (free) for the deep history a backtest needs.")
+    print(f"{'='*72}")
+
+    persist_usage()
+    print(av_budget_report())
+
+    if args.telegram:
+        rows = "\n".join(_fmt_row(t, _agg(by_tier[t])).strip()
+                          for t in ("WATCH", "STRONG", "HIGH CONVICTION"))
+        telegram_send(
+            f"<b>Backtest — {args.years}y</b>\n<pre>{_fmt_row('BASELINE', b).strip()}\n"
+            f"{rows}\n{_fmt_row('ALL', a).strip()}</pre>\n"
+            + "\n".join(verdict))
     return 0
+
 
 
 def main() -> int:
@@ -1587,7 +2018,15 @@ def main() -> int:
     b = sub.add_parser("backtest", help="validate the scoring rules on history")
     b.add_argument("--years", type=float, default=3.0)
     b.add_argument("--symbols", nargs="*")
+    b.add_argument("--max-hold", type=int, default=PAPER_MAX_HOLD_DAYS,
+                   help="bars to hold before exiting at the close")
+    b.add_argument("--telegram", action="store_true", help="send a summary")
     b.set_defaults(func=cmd_backtest)
+
+    h = sub.add_parser("history", help="show the paper-trading log and performance")
+    h.add_argument("--limit", type=int, default=40, help="closed trades to show")
+    h.add_argument("--telegram", action="store_true", help="also send a summary")
+    h.set_defaults(func=cmd_history)
 
     t = sub.add_parser("test-telegram", help="verify bot credentials")
     t.set_defaults(func=cmd_test_telegram)
