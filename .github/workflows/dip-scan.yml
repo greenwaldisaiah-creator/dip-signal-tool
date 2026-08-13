@@ -115,6 +115,8 @@ jobs:
           MAX_POSITION_PCT: ${{ vars.MAX_POSITION_PCT }}
           # Intraday fires 27x/day, so it holds a higher bar than end-of-day.
           INTRADAY_MIN_SCORE: ${{ vars.INTRADAY_MIN_SCORE }}
+          # Set to 70 to alert only on HIGH CONVICTION setups.
+          ALERT_MIN_SCORE: ${{ vars.ALERT_MIN_SCORE }}
           PAPER_TRADE_USD: ${{ vars.PAPER_TRADE_USD }}
           PAPER_MAX_HOLD_DAYS: ${{ vars.PAPER_MAX_HOLD_DAYS }}
         run: python signal_tool.py ${{ steps.select.outputs.cmd }}
