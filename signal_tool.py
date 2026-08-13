@@ -123,6 +123,7 @@ INTRADAY_INTERVAL = "15min"
 # strong setups under WATCH-tier noise on your phone.
 INTRADAY_MIN_SCORE = env_float("INTRADAY_MIN_SCORE", 55.0)
 
+
 # US market hours in UTC during EDT. Scans outside these bounds would burn
 # credits on stale bars, so they exit early.
 MARKET_OPEN_UTC = (13, 30)
@@ -260,6 +261,11 @@ W_RSI, W_BOLLINGER, W_DRAWDOWN, W_VOLUME, W_TREND = 30, 20, 20, 15, 15
 
 TIER_HIGH, TIER_STRONG, TIER_WATCH = 70, 55, 40
 RISK_OFF_PENALTY = 10  # thresholds rise by this much when SPY < SMA200
+
+# Floor for ALL alerts, end-of-day included. Set to 70 to alert only on
+# HIGH CONVICTION -- worth doing when a backtest shows the lower tiers
+# failing to beat the baseline, which is the common outcome.
+ALERT_MIN_SCORE = env_float("ALERT_MIN_SCORE", float(TIER_WATCH))
 
 RESEND_AFTER_DAYS = 5  # don't re-alert the same ticker/tier inside this window
 
@@ -1635,7 +1641,7 @@ def apply_tuned_params() -> dict:
 
 def tuned_min_score(params: dict, intraday: bool) -> float:
     """The score an alert must clear, after tuning. Intraday keeps its own floor."""
-    base = clamp_param("min_score", params.get("min_score", float(TIER_WATCH)))
+    base = clamp_param("min_score", params.get("min_score", ALERT_MIN_SCORE))
     return max(base, INTRADAY_MIN_SCORE) if intraday else base
 
 
