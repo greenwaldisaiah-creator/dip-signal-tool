@@ -33,7 +33,8 @@ on:
           - telegram-test       # just prove the bot can reach your phone
           - history             # paper-trading log + performance summary
           - backtest            # replay the strategy over years of history
-          - optimize            # sweep trade geometry, validate out-of-sample
+          - optimize-preview    # sweep and report, change nothing
+          - optimize            # sweep, and ADOPT the winner if it validates
           - autotune            # adjust selectivity from realised paper results
       years:
         description: "Backtest only: years of history to replay"
@@ -43,13 +44,19 @@ on:
 
 # A slow run must never overlap the next 15-minute tick. Queued runs are
 # cancelled rather than piling up and double-spending the credit budget.
+# The scan commits its trade history back to the repo, so it needs write access
+# to its own contents. This uses the automatic GITHUB_TOKEN -- no personal token
+# is ever created or stored.
+permissions:
+  contents: write
+
 concurrency:
   group: dip-scan
   cancel-in-progress: false
 
 jobs:
   scan:
-    if: inputs.mode != 'backtest' && inputs.mode != 'optimize'
+    if: inputs.mode != 'backtest' && inputs.mode != 'optimize' && inputs.mode != 'optimize-preview'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -66,11 +73,7 @@ jobs:
       - name: Restore cache
         uses: actions/cache@v4
         with:
-          path: |
-            cache
-            state.json
-            trades.json
-            params.json
+          path: cache
           key: dip-scan-${{ github.run_id }}
           restore-keys: dip-scan-
 
@@ -124,10 +127,41 @@ jobs:
           PAPER_MAX_HOLD_DAYS: ${{ vars.PAPER_MAX_HOLD_DAYS }}
         run: python signal_tool.py ${{ steps.select.outputs.cmd }}
 
+      # Persist paper-trading history in the repository itself. The Actions
+      # cache is evicted after 7 days untouched, which would silently erase
+      # months of results. Only commits when a file actually changed, so this
+      # does not add a commit on every one of the 28 daily runs.
+      - name: Persist trade history
+        if: always()
+        run: |
+          if [ -z "$(git status --porcelain trades.json params.json state.json 2>/dev/null)" ]; then
+            echo "No history changes to commit."
+            exit 0
+          fi
+          git config user.name  "dip-scan-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Add each file only if it exists. Passing a missing path makes
+          # `git add` fail for the whole list, which would silently stage
+          # nothing and commit nothing while still looking successful.
+          for f in trades.json params.json state.json; do
+            [ -f "$f" ] && git add -- "$f"
+          done
+          if git diff --cached --quiet; then
+            echo "Nothing staged."
+            exit 0
+          fi
+          git commit -m "chore: paper trading history [skip ci]"
+          # Another run may have committed while this one was scanning.
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && break
+            sleep 3
+          done
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
   optimize:
     # Manual only. Sweeps trade geometry over years of history, so it needs the
     # same long timeout as the backtest.
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'optimize'
+    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'optimize' || inputs.mode == 'optimize-preview')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -138,11 +172,7 @@ jobs:
       - name: Restore cache
         uses: actions/cache@v4
         with:
-          path: |
-            cache
-            state.json
-            trades.json
-            params.json
+          path: cache
           key: dip-scan-${{ github.run_id }}
           restore-keys: dip-scan-
       - name: Run optimizer
@@ -151,7 +181,29 @@ jobs:
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python signal_tool.py optimize --years "${{ inputs.years || '5' }}" --apply
+        run: |
+          # optimize-preview reports only. optimize adopts a validated winner.
+          APPLY=""
+          [ "${{ inputs.mode }}" = "optimize" ] && APPLY="--apply"
+          python signal_tool.py optimize --years "${{ inputs.years || '5' }}" $APPLY
+
+      - name: Persist tuned parameters
+        if: always()
+        run: |
+          if [ -z "$(git status --porcelain params.json 2>/dev/null)" ]; then
+            echo "No parameter changes to commit."
+            exit 0
+          fi
+          git config user.name  "dip-scan-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          [ -f params.json ] && git add -- params.json
+          if git diff --cached --quiet; then
+            echo "Nothing staged."
+            exit 0
+          fi
+          git commit -m "chore: tuned parameters from optimize [skip ci]"
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
   backtest:
     # Manual only. Needs far longer than a scan tick: it pulls full history for
@@ -168,11 +220,7 @@ jobs:
       - name: Restore cache
         uses: actions/cache@v4
         with:
-          path: |
-            cache
-            state.json
-            trades.json
-            params.json
+          path: cache
           key: dip-scan-${{ github.run_id }}
           restore-keys: dip-scan-
       - name: Run backtest
