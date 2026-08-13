@@ -50,6 +50,23 @@
       "target_pct": 1.78,
       "stop_pct": 2.64,
       "hold_days_est": 3
+    },
+    {
+      "symbol": "AAPL",
+      "opened_at": "2026-08-13T17:36:38.536378+00:00",
+      "entry": 301.36,
+      "stop": 287.14,
+      "target": 310.85,
+      "shares": 0.331829,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 45.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 3.15,
+      "stop_pct": 4.72,
+      "hold_days_est": 2
     }
   ],
   "closed": []
