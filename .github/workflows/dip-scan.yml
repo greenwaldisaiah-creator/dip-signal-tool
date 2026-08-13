@@ -11,10 +11,15 @@ name: Dip Scan
 
 on:
   schedule:
-    # 21:15 UTC = 5:15pm ET (EDT) — after the close, on settled daily bars.
-    - cron: "15 21 * * 1-5"
-    # 15:30 UTC = 11:30am ET (EDT) — one midday intraday sweep.
-    - cron: "30 15 * * 1-5"
+    # --- Continuous intraday: every 15 minutes through the US session ---
+    # 13:30-20:00 UTC = 9:30am-4:00pm ET during EDT. 15-minute bars only produce
+    # new data every 15 minutes, so this is the fastest cadence that actually
+    # tells you anything new. 27 sweeps/day.
+    - cron: "30,45 13 * * 1-5"        # 9:30, 9:45 ET
+    - cron: "*/15 14-19 * * 1-5"      # 10:00 - 3:45 ET
+    - cron: "0 20 * * 1-5"            # 4:00 ET
+    # --- End-of-day scan, on settled daily bars ---
+    - cron: "15 21 * * 1-5"           # 5:15pm ET
   workflow_dispatch:
     inputs:
       mode:
@@ -27,9 +32,16 @@ on:
           - end-of-day-notify   # scan, and message even if nothing qualifies
           - telegram-test       # just prove the bot can reach your phone
 
+# A slow run must never overlap the next 15-minute tick. Queued runs are
+# cancelled rather than piling up and double-spending the credit budget.
+concurrency:
+  group: dip-scan
+  cancel-in-progress: false
+
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
 
@@ -57,10 +69,12 @@ jobs:
         run: |
           MODE="${{ inputs.mode }}"
           if [ -z "$MODE" ]; then
-            if [ "${{ github.event.schedule }}" = "30 15 * * 1-5" ]; then
-              MODE="intraday"
-            else
+            # Only the 21:15 cron is the end-of-day scan. Every other schedule
+            # is one of the intraday ticks.
+            if [ "${{ github.event.schedule }}" = "15 21 * * 1-5" ]; then
               MODE="end-of-day"
+            else
+              MODE="intraday"
             fi
           fi
           case "$MODE" in
@@ -85,9 +99,13 @@ jobs:
           ACCOUNT_SIZE: ${{ vars.ACCOUNT_SIZE }}
           RISK_PCT: ${{ vars.RISK_PCT }}
           MAX_POSITION_PCT: ${{ vars.MAX_POSITION_PCT }}
+          # Intraday fires 27x/day, so it holds a higher bar than end-of-day.
+          INTRADAY_MIN_SCORE: ${{ vars.INTRADAY_MIN_SCORE }}
         run: python signal_tool.py ${{ steps.select.outputs.cmd }}
 
   test:
+    # Only on manual runs and pushes -- not on all 27 daily scheduled ticks.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
