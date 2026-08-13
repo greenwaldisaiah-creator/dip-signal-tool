@@ -777,7 +777,9 @@ check("target exit books exactly the target move", approx(r["pnl_pct"], 10.0, 0.
 r = ST.simulate_trade(_bars([(100,100),(99,101),(94,99)]), 0, _plan100)
 check("a filled limit that reaches the stop is a loss",
       r and r["exit_reason"] == "stop")
-check("stop exit books exactly the stop move", approx(r["pnl_pct"], -5.0, 0.01))
+check("stop exit books the stop move plus slippage",
+      r["pnl_pct"] < -5.0 and r["pnl_pct"] > -5.2,
+      f"got {r['pnl_pct']:.3f}% (expected slightly worse than -5%)")
 
 # Stop and target in the SAME bar -> must book the stop.
 r = ST.simulate_trade(_bars([(100,100),(94,111)]), 0, _plan100)
@@ -929,6 +931,74 @@ for _cmd in (["history"], ["scan", "--dry-run", "--symbols", "SPY"],
     check(f"`{' '.join(_cmd[:2])}` does not crash on import with blank vars",
           "ValueError" not in _rr.stderr and "Traceback" not in _rr.stderr,
           _rr.stderr.strip()[-140:])
+
+print("\nTrading costs")
+
+_o = ST.SLIPPAGE_BPS, ST.COMMISSION_USD
+ST.SLIPPAGE_BPS, ST.COMMISSION_USD = 5.0, 0.0
+
+# A limit target fills at its price: no slippage.
+net, cost = ST.apply_costs(100.0, 110.0, "target", 1.0)
+check("a limit target exit costs nothing", approx(net, 10.0, 1e-9) and cost == 0.0)
+
+# A stop becomes a market order and fills worse.
+net, cost = ST.apply_costs(100.0, 95.0, "stop", 1.0)
+check("a stop exit slips against you", net < -5.0, f"got {net}")
+check("stop slippage is 5bps of the exit price", approx(cost, 95.0*5/10_000, 1e-9))
+
+net_t, cost_t = ST.apply_costs(100.0, 98.0, "time", 1.0)
+check("a time (market) exit also slips", cost_t > 0)
+
+# Slippage lands on LOSERS, not winners -- the asymmetry that matters.
+_, cw = ST.apply_costs(100.0, 110.0, "target", 1.0)
+_, cl = ST.apply_costs(100.0, 95.0, "stop", 1.0)
+check("costs fall on losing exits, not winning ones", cw == 0.0 and cl > 0.0)
+
+# Commission applies to every round trip regardless of outcome.
+ST.COMMISSION_USD = 1.0
+net, cost = ST.apply_costs(100.0, 110.0, "target", 1.0)
+check("commission applies even to a limit exit", approx(net, 9.0, 1e-9))
+check("commission is included in reported costs", approx(cost, 1.0, 1e-9))
+ST.COMMISSION_USD = 0.0
+
+# Zero-cost config must reproduce the old gross numbers exactly.
+ST.SLIPPAGE_BPS = 0.0
+net, cost = ST.apply_costs(100.0, 95.0, "stop", 1.0)
+check("zero-cost settings reproduce gross P/L", approx(net, -5.0, 1e-9) and cost == 0.0)
+ST.SLIPPAGE_BPS = 5.0
+
+# Backtest reports gross and cost separately so the drag is visible.
+_pp = _P(100.0, 95.0, 110.0)
+_rs = ST.simulate_trade(_bars([(100,100),(99,101),(94,99)]), 0, _pp)
+check("backtest reports gross alongside net", "gross_pct" in _rs and "cost_pct" in _rs)
+check("net is worse than gross on a stop", _rs["pnl_pct"] < _rs["gross_pct"])
+_rt = ST.simulate_trade(_bars([(100,100),(99,101),(105,111)]), 0, _pp)
+check("net equals gross on a limit target",
+      approx(_rt["pnl_pct"], _rt["gross_pct"], 1e-9))
+
+# The live tracker and the backtest must charge costs identically.
+ST.TRADES_FILE = Path("test_trades3.json")
+if ST.TRADES_FILE.exists(): ST.TRADES_FILE.unlink()
+_bk = {"open": [], "closed": []}
+_sg = evaluate("CST", moderate, NO_NEWS, NO_FLOW, RISK_ON)
+ST.open_paper_trade(_bk, _sg, False)
+_tr = _bk["open"][0]
+_stopbar = [Bar(date="2099-07-01", open=_tr["entry"], high=_tr["entry"],
+                low=_tr["stop"] - 0.01, close=_tr["stop"], volume=1e6)]
+_live = ST.resolve_paper_trades(_bk, {"CST": _stopbar})[0]
+_bt = ST.simulate_trade(
+    [Bar(date="2099-06-30", open=_tr["entry"], high=_tr["entry"], low=_tr["entry"],
+         close=_tr["entry"], volume=1e6),
+     Bar(date="2099-07-01", open=_tr["entry"], high=_tr["entry"],
+         low=_tr["stop"] - 0.01, close=_tr["stop"], volume=1e6)],
+    0, _P(_tr["entry"], _tr["stop"], _tr["target"]))
+check("live and backtest charge the same cost on a stop",
+      abs(_live["pnl_pct"] - _bt["pnl_pct"]) < 0.02,
+      f"live {_live['pnl_pct']:.3f}% vs backtest {_bt['pnl_pct']:.3f}%")
+check("the live tracker records what costs were charged", "costs_usd" in _live)
+if ST.TRADES_FILE.exists(): ST.TRADES_FILE.unlink()
+ST.TRADES_FILE = Path("trades.json")
+ST.SLIPPAGE_BPS, ST.COMMISSION_USD = _o
 
 print(f"\n{'='*54}")
 if FAILS:

@@ -1442,6 +1442,20 @@ def format_message(signals: list[Signal], regime: Regime, intraday: bool = False
 # tool that can tell you whether the signal is worth anything.
 
 PAPER_TRADE_USD = env_float("PAPER_TRADE_USD", 100.0)
+
+# --- Trading costs -----------------------------------------------------------
+# Modelled per exit TYPE, because they do not slip alike:
+#   entry  -- a LIMIT buy. You either get your price or you get nothing, and
+#             "nothing" is already modelled as an unfilled order. No slippage.
+#   target -- a LIMIT sell resting above the market. No slippage.
+#   stop   -- a STOP order becomes a MARKET order when triggered, and fills
+#             worse than the trigger. This is where essentially all slippage
+#             lives, and it lands entirely on losing trades.
+#   time   -- a market exit. Slips like any market order.
+# Applying a flat cost to every leg would overstate drag on winners and
+# understate the asymmetry that actually matters.
+SLIPPAGE_BPS = env_float("SLIPPAGE_BPS", 5.0)      # basis points on market-type exits
+COMMISSION_USD = env_float("COMMISSION_USD", 0.0)  # per round trip; most brokers are $0
 PAPER_MAX_HOLD_DAYS = env_int("PAPER_MAX_HOLD_DAYS", 30)
 TRADES_FILE = BASE_DIR / "trades.json"
 
@@ -1525,19 +1539,36 @@ def resolve_paper_trades(book: dict, bars_by_symbol: dict[str, list[Bar]]) -> li
                 still_open.append(tr)
                 continue
 
-        pnl = (exit_price - tr["entry"]) * tr["shares"]
+        pnl, cost = apply_costs(tr["entry"], exit_price, exit_reason, tr["shares"])
         closed = dict(tr)
         closed.update({
             "exit": round(exit_price, 2), "exit_reason": exit_reason,
             "exit_date": exit_date, "closed_at": now.isoformat(),
             "pnl": round(pnl, 2),
-            "pnl_pct": round((exit_price - tr["entry"]) / tr["entry"] * 100, 2),
+            "cost": tr.get("cost", PAPER_TRADE_USD),
+            "costs_usd": round(cost, 4),
+            "pnl_pct": round(pnl / (tr["entry"] * tr["shares"]) * 100, 2),
         })
         newly_closed.append(closed)
 
     book["open"] = still_open
     book["closed"].extend(newly_closed)
     return newly_closed
+
+
+def apply_costs(entry: float, exit_price: float, exit_reason: str,
+                shares: float) -> tuple[float, float]:
+    """Return (net_pnl, cost_usd) for one round trip.
+
+    Slippage applies only to market-type exits (stop, time). A limit entry and
+    a limit target fill at their price or not at all.
+    """
+    slip = 0.0
+    if exit_reason in ("stop", "time"):
+        slip = exit_price * SLIPPAGE_BPS / 10_000
+    realised_exit = exit_price - slip
+    gross = (realised_exit - entry) * shares
+    return gross - COMMISSION_USD, slip * shares + COMMISSION_USD
 
 
 def paper_stats(book: dict) -> dict:
@@ -1902,21 +1933,25 @@ def simulate_trade(bars: list[Bar], signal_idx: int, plan: TradePlan,
     if fill_idx is None:
         return None                      # limit never filled
 
+    def _result(reason: str, price: float, days: int) -> dict:
+        # Same cost model the live paper tracker uses, on one notional share,
+        # so backtest and live results stay directly comparable.
+        net, cost = apply_costs(plan.entry, price, reason, 1.0)
+        return {"exit_reason": reason, "exit": price,
+                "pnl_pct": net / plan.entry * 100,
+                "gross_pct": (price - plan.entry) / plan.entry * 100,
+                "cost_pct": cost / plan.entry * 100,
+                "days": days}
+
     for k in range(fill_idx, min(fill_idx + max_hold + 1, len(bars))):
         b = bars[k]
         if b.low <= plan.stop:           # stop always checked first
-            return {"exit_reason": "stop", "exit": plan.stop,
-                    "pnl_pct": (plan.stop - plan.entry) / plan.entry * 100,
-                    "days": k - fill_idx}
+            return _result("stop", plan.stop, k - fill_idx)
         if b.high >= plan.target:
-            return {"exit_reason": "target", "exit": plan.target,
-                    "pnl_pct": (plan.target - plan.entry) / plan.entry * 100,
-                    "days": k - fill_idx}
+            return _result("target", plan.target, k - fill_idx)
 
     last = bars[min(fill_idx + max_hold, len(bars) - 1)]
-    return {"exit_reason": "time", "exit": last.close,
-            "pnl_pct": (last.close - plan.entry) / plan.entry * 100,
-            "days": min(max_hold, len(bars) - 1 - fill_idx)}
+    return _result("time", last.close, min(max_hold, len(bars) - 1 - fill_idx))
 
 
 def _agg(trades: list[dict]) -> dict:
