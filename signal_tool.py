@@ -1137,8 +1137,23 @@ class TradePlan:
     ann_vol_pct: float | None
 
 
-def build_trade_plan(t: Technicals) -> TradePlan | None:
-    """Entry / stop / target for a dip signal, or None if inputs are unusable."""
+# Default trade geometry. These are the knobs `optimize` sweeps.
+STOP_ATR_MULT = env_float("STOP_ATR_MULT", 1.5)
+TARGET_ATR_MULT = env_float("TARGET_ATR_MULT", 0.0)   # 0 = use the 20-day mean
+
+
+def build_trade_plan(t: Technicals, stop_mult: float | None = None,
+                     target_mult: float | None = None) -> TradePlan | None:
+    """Entry / stop / target for a dip signal, or None if inputs are unusable.
+
+    `stop_mult` is in ATR units. `target_mult` in ATR units too; pass 0 (the
+    default) to target reversion to the 20-day mean instead of a fixed multiple.
+    Both are swept by the `optimize` command -- widening the target raises R:R
+    but lowers the hit rate, and only measurement can say where expectancy peaks.
+    """
+    stop_mult = STOP_ATR_MULT if stop_mult is None else stop_mult
+    target_mult = TARGET_ATR_MULT if target_mult is None else target_mult
+
     if not t.close or not t.atr_pct or t.atr_pct <= 0:
         return None
     atr = t.close * t.atr_pct / 100
@@ -1149,11 +1164,14 @@ def build_trade_plan(t: Technicals) -> TradePlan | None:
     if entry <= 0:
         return None
 
-    stop = entry - 1.5 * atr
+    stop = entry - stop_mult * atr
 
-    # Target: reversion to the 20-day mean, floored at 1 ATR so a shallow dip
-    # cannot produce a target too close to be worth the risk.
-    target = max(t.sma20 or entry + 2 * atr, entry + atr)
+    if target_mult and target_mult > 0:
+        target = entry + target_mult * atr
+    else:
+        # Reversion to the 20-day mean, floored at 1 ATR so a shallow dip
+        # cannot produce a target too close to be worth the risk.
+        target = max(t.sma20 or entry + 2 * atr, entry + atr)
 
     risk = entry - stop
     reward = target - entry
@@ -1604,7 +1622,30 @@ def is_new_signal(state: dict, sig: Signal, intraday: bool = False) -> bool:
 # Commands
 # --------------------------------------------------------------------------
 
+def apply_tuned_params() -> dict:
+    """Load any validated parameters written by `optimize --apply`."""
+    global STOP_ATR_MULT, TARGET_ATR_MULT
+    p = load_params()
+    if "stop_mult" in p:
+        STOP_ATR_MULT = clamp_param("stop_mult", float(p["stop_mult"]))
+    if "target_mult" in p:
+        TARGET_ATR_MULT = clamp_param("target_mult", float(p["target_mult"]))
+    return p
+
+
+def tuned_min_score(params: dict, intraday: bool) -> float:
+    """The score an alert must clear, after tuning. Intraday keeps its own floor."""
+    base = clamp_param("min_score", params.get("min_score", float(TIER_WATCH)))
+    return max(base, INTRADAY_MIN_SCORE) if intraday else base
+
+
 def cmd_scan(args) -> int:
+    tuned = apply_tuned_params()
+    if tuned:
+        print(f"Using tuned params: stop {STOP_ATR_MULT:.1f}x ATR, "
+              f"target {'20d mean' if not TARGET_ATR_MULT else f'{TARGET_ATR_MULT:.1f}x ATR'}"
+              f" (validated {tuned.get('updated_at','?')[:10]}, "
+              f"OOS {tuned.get('oos_expectancy','?')}%)")
     intraday = getattr(args, "intraday", False)
     symbols = args.symbols or (INTRADAY_WATCHLIST if intraday else WATCHLIST)
     mode = f"intraday {INTRADAY_INTERVAL}" if intraday else "end-of-day"
@@ -1694,14 +1735,17 @@ def cmd_scan(args) -> int:
 
     news_by_symbol = fetch_news(list(tech_by_symbol))
 
+    min_score = tuned_min_score(tuned, intraday)
+    if tuned.get("halted"):
+        print(f"  ! CIRCUIT BREAKER ACTIVE — only score ≥{min_score:.0f} alerts fire")
     signals: list[Signal] = []
     for sym, tech in tech_by_symbol.items():
         # Only spend SEC requests on names that already look technically interesting.
         prelim, _ = score_technicals(tech)
         flow = fetch_flow(sym) if (prelim >= TIER_WATCH - 10 and not args.no_flow) else FlowSignal()
         sig = evaluate(sym, tech, news_by_symbol.get(sym, NewsSignal()), flow, regime)
-        if sig and intraday and sig.final_score < INTRADAY_MIN_SCORE:
-            continue        # intraday holds a higher bar than end-of-day
+        if sig and sig.final_score < min_score:
+            continue        # below the (possibly auto-tuned) alert threshold
         if sig:
             signals.append(sig)
 
@@ -1898,6 +1942,272 @@ def _fmt_row(label: str, a: dict) -> str:
             f"avg {a['avg']:+6.2f}%  PF {pf:>5}  hold {a['avg_days']:4.1f}d")
 
 
+PARAMS_FILE = BASE_DIR / "params.json"
+
+# Bounds for anything auto-tuning is allowed to change. A self-adjusting system
+# without bounds will happily walk itself somewhere absurd on a run of noise.
+PARAM_BOUNDS = {
+    "stop_mult": (1.0, 3.0),
+    "target_mult": (0.0, 6.0),
+    "min_score": (40.0, 80.0),
+}
+MIN_TRADES_TO_TUNE = env_int("MIN_TRADES_TO_TUNE", 50)
+
+
+def load_params() -> dict:
+    if PARAMS_FILE.exists():
+        try:
+            return json.loads(PARAMS_FILE.read_text())
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
+def save_params(p: dict) -> None:
+    PARAMS_FILE.write_text(json.dumps(p, indent=2))
+
+
+def clamp_param(name: str, value: float) -> float:
+    lo, hi = PARAM_BOUNDS[name]
+    return max(lo, min(hi, value))
+
+
+def _collect_trades(bars: list[Bar], start_idx: int, end_idx: int,
+                    stop_mult: float, target_mult: float, min_score: float,
+                    max_hold: int) -> list[dict]:
+    out = []
+    for i in range(start_idx, end_idx):
+        window = bars[max(0, i - 259): i + 1]
+        t = compute_technicals(window)
+        sc, _ = score_technicals(t)
+        if sc < min_score:
+            continue
+        plan = build_trade_plan(t, stop_mult=stop_mult, target_mult=target_mult)
+        if not plan:
+            continue
+        r = simulate_trade(bars, i, plan, max_hold)
+        if r:
+            out.append(r)
+    return out
+
+
+def cmd_autotune(args) -> int:
+    """Adjust selectivity from realised paper results, within hard limits.
+
+    This deliberately tunes only ONE thing -- how high the score has to be
+    before an alert fires. Trade geometry is not touched here: changing stops
+    and targets from a few dozen live trades is how a working strategy gets
+    curve-fitted into a broken one. Geometry changes go through `optimize`,
+    which validates on data it never saw.
+
+    Guards, all of which matter more than the tuning itself:
+      * Nothing happens below MIN_TRADES_TO_TUNE closed trades.
+      * Steps are small and bounded; one bad run cannot move it far.
+      * A circuit breaker halts trading outright if results go badly negative,
+        because "adapt harder" is the wrong response to a losing edge.
+    """
+    book = load_trades()
+    closed = book.get("closed", [])
+    params = load_params()
+    current = clamp_param("min_score", params.get("min_score", float(TIER_WATCH)))
+
+    recent = sorted(closed, key=lambda t: t.get("closed_at", ""))[-args.window:]
+    st = paper_stats({"open": book.get("open", []), "closed": recent})
+
+    print(f"Reviewing the last {len(recent)} closed trades "
+          f"(need {MIN_TRADES_TO_TUNE} to act)")
+    print(f"  {paper_summary_line(st)}")
+    print(f"  Current minimum score: {current:.0f}")
+
+    if len(recent) < MIN_TRADES_TO_TUNE:
+        print(f"\n  Too few trades to tune on. {MIN_TRADES_TO_TUNE - len(recent)} more "
+              f"needed.\n  Tuning on a small sample fits noise, not signal.")
+        return 0
+
+    pf = st["profit_factor"]
+    new, reason, halt = current, None, False
+
+    if pf is None:
+        reason = "no losing trades yet — nothing to correct"
+    elif pf < 0.7:
+        new, halt = clamp_param("min_score", 80.0), True
+        reason = (f"CIRCUIT BREAKER: profit factor {pf:.2f} over {len(recent)} trades. "
+                  f"The edge is not working. Selectivity forced to maximum.")
+    elif pf < 1.0:
+        new = clamp_param("min_score", current + 5)
+        reason = f"profit factor {pf:.2f} is below 1.0 — becoming more selective"
+    elif pf > 1.5 and st["win_rate"] > 45:
+        new = clamp_param("min_score", current - 2.5)
+        reason = f"profit factor {pf:.2f} is healthy — loosening slightly to take more setups"
+    else:
+        reason = f"profit factor {pf:.2f} is acceptable — leaving settings alone"
+
+    print(f"\n  {reason}")
+    if new != current:
+        print(f"  Minimum score {current:.0f} → {new:.0f}")
+    else:
+        print(f"  No change.")
+
+    if args.apply and new != current:
+        history = params.get("tuning_log", [])
+        history.append({"at": datetime.now(timezone.utc).isoformat(),
+                        "from": current, "to": new, "reason": reason,
+                        "pf": pf, "trades": len(recent)})
+        params.update({"min_score": new, "tuning_log": history[-40:],
+                       "halted": halt})
+        save_params(params)
+        print(f"  ✓ Applied to params.json")
+        if halt:
+            telegram_send(
+                f"<b>⛔ Circuit breaker tripped</b>\nProfit factor "
+                f"{pf:.2f} over {len(recent)} paper trades. Alerts restricted to "
+                f"the strongest setups only.\n\nThe strategy is not working as "
+                f"configured. Re-run <code>optimize</code> before trusting it again.")
+    elif new != current:
+        print(f"  (dry run — pass --apply to make the change)")
+    return 0
+
+
+def cmd_optimize(args) -> int:
+    """Sweep trade geometry and report what actually maximises expectancy.
+
+    Split in two: the sweep picks a winner on the OLDER 70% of history
+    (in-sample), then that winner is measured on the newer 30% it never saw
+    (out-of-sample). A setting that looks brilliant in-sample and collapses
+    out-of-sample is curve-fitted, not skilful, and this prints both so the
+    difference is impossible to miss.
+    """
+    symbols = args.symbols or WATCHLIST
+    load_persisted_usage()
+    max_hold = args.max_hold
+
+    series: dict[str, tuple[list[Bar], int, int, int]] = {}
+    for sym in symbols:
+        try:
+            bars = fetch_prices(sym, full=True, max_age_hours=168)
+        except DataError as exc:
+            print(f"  ! {sym}: {exc}", file=sys.stderr)
+            continue
+        if len(bars) < 220 + max_hold + 100:
+            print(f"  ! {sym}: only {len(bars)} bars, skipping", file=sys.stderr)
+            continue
+        cutoff = datetime.now().date() - timedelta(days=int(365.25 * args.years))
+        s0 = max(next((i for i, b in enumerate(bars) if b.date[:10] >= cutoff.isoformat()), 0), 220)
+        last = len(bars) - max_hold - 1
+        if last - s0 < 200:
+            continue
+        split = s0 + int((last - s0) * 0.7)
+        series[sym] = (bars, s0, split, last)
+
+    if not series:
+        print("No symbol had enough history to optimise on.", file=sys.stderr)
+        print("A free Alpha Vantage key returns 100 daily bars — add a Twelve Data key.",
+              file=sys.stderr)
+        return 1
+
+    stop_grid = [1.0, 1.5, 2.0, 2.5, 3.0]
+    target_grid = [0.0, 1.5, 2.0, 3.0, 4.0, 6.0]   # 0 = revert to the 20-day mean
+    score_grid = [args.min_score] if args.min_score else [40.0, 55.0, 70.0]
+
+    print(f"\nSweeping {len(stop_grid)*len(target_grid)*len(score_grid)} combinations "
+          f"across {len(series)} symbols...\n")
+    print(f"{'STOP':>5}{'TARGET':>8}{'SCORE':>7}{'N':>6}{'WIN%':>7}"
+          f"{'AVG%':>8}{'PF':>7}{'HOLD':>6}   {'EXPECTANCY':>10}")
+    print("-" * 72)
+
+    results = []
+    for sm in stop_grid:
+        for tm in target_grid:
+            for ms in score_grid:
+                ins = []
+                for bars, s0, split, last in series.values():
+                    ins += _collect_trades(bars, s0, split, sm, tm, ms, max_hold)
+                a = _agg(ins)
+                if a["n"] < 20:
+                    continue
+                results.append({"stop_mult": sm, "target_mult": tm, "min_score": ms,
+                                "is": a})
+                pf = f"{a['pf']:.2f}" if a["pf"] is not None else "  n/a"
+                tlabel = "mean" if tm == 0 else f"{tm:.1f}x"
+                print(f"{sm:>5.1f}{tlabel:>8}{ms:>7.0f}{a['n']:>6}"
+                      f"{a['win_rate']:>7.1f}{a['avg']:>8.2f}{pf:>7}"
+                      f"{a['avg_days']:>6.1f}   {a['avg']:>9.2f}%")
+
+    if not results:
+        print("\nNo combination produced enough trades to judge.")
+        return 1
+
+    results.sort(key=lambda r: -r["is"]["avg"])
+    best = results[0]
+
+    # Validate the winner on data the sweep never touched.
+    oos = []
+    for bars, s0, split, last in series.values():
+        oos += _collect_trades(bars, split, last, best["stop_mult"],
+                               best["target_mult"], best["min_score"], max_hold)
+    oa = _agg(oos)
+
+    # And the current live settings, for comparison on the same OOS window.
+    cur = load_params()
+    cur_sm = cur.get("stop_mult", STOP_ATR_MULT)
+    cur_tm = cur.get("target_mult", TARGET_ATR_MULT)
+    cur_ms = cur.get("min_score", TIER_WATCH)
+    cur_oos = []
+    for bars, s0, split, last in series.values():
+        cur_oos += _collect_trades(bars, split, last, cur_sm, cur_tm, cur_ms, max_hold)
+    ca = _agg(cur_oos)
+
+    tlabel = "20d mean" if best["target_mult"] == 0 else f"{best['target_mult']:.1f}x ATR"
+    print(f"\n{'='*72}")
+    print("BEST IN-SAMPLE")
+    print(f"  stop {best['stop_mult']:.1f}x ATR · target {tlabel} · min score {best['min_score']:.0f}")
+    print(f"  in-sample      {_fmt_row('', best['is']).strip()}")
+    print(f"  OUT-OF-SAMPLE  {_fmt_row('', oa).strip()}")
+    print(f"\nCURRENT SETTINGS on the same out-of-sample window")
+    print(f"  stop {cur_sm:.1f}x ATR · target "
+          f"{'20d mean' if not cur_tm else f'{cur_tm:.1f}x ATR'} · min score {cur_ms:.0f}")
+    print(f"  OUT-OF-SAMPLE  {_fmt_row('', ca).strip()}")
+    print(f"{'='*72}")
+
+    verdict, adopt = [], False
+    if not oa["n"] or oa["n"] < 20:
+        verdict.append("Out-of-sample sample too small to trust. Not adopting.")
+    elif oa["avg"] <= 0:
+        verdict.append("The best in-sample setting LOSES money out-of-sample.")
+        verdict.append("That is curve-fitting. Not adopting.")
+    elif best["is"]["avg"] > 0 and oa["avg"] < best["is"]["avg"] * 0.5:
+        verdict.append(f"Out-of-sample expectancy ({oa['avg']:+.2f}%) is less than half "
+                       f"in-sample ({best['is']['avg']:+.2f}%).")
+        verdict.append("That degradation is the signature of overfitting. Not adopting.")
+    elif ca["n"] and oa["avg"] <= ca["avg"]:
+        verdict.append(f"No better than current settings out-of-sample "
+                       f"({oa['avg']:+.2f}% vs {ca['avg']:+.2f}%). Keeping what you have.")
+    else:
+        adopt = True
+        verdict.append(f"Out-of-sample improvement: {oa['avg']:+.2f}% vs "
+                       f"{ca['avg']:+.2f}% per trade.")
+    for line in verdict:
+        print("  " + line)
+
+    if adopt and args.apply:
+        cur.update({"stop_mult": clamp_param("stop_mult", best["stop_mult"]),
+                    "target_mult": clamp_param("target_mult", best["target_mult"]),
+                    "min_score": clamp_param("min_score", best["min_score"]),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "oos_expectancy": round(oa["avg"], 3),
+                    "oos_trades": oa["n"]})
+        save_params(cur)
+        print(f"\n  ✓ Applied to params.json — future scans use these.")
+    elif args.apply:
+        print(f"\n  Nothing applied. Current settings retained.")
+    else:
+        print(f"\n  (dry run — pass --apply to adopt a validated improvement)")
+
+    persist_usage()
+    print(av_budget_report())
+    return 0
+
+
 def cmd_backtest(args) -> int:
     """Replay the strategy over history using the real trade plan.
 
@@ -2060,6 +2370,22 @@ def main() -> int:
     h.add_argument("--limit", type=int, default=40, help="closed trades to show")
     h.add_argument("--telegram", action="store_true", help="also send a summary")
     h.set_defaults(func=cmd_history)
+
+    at = sub.add_parser("autotune", help="adjust selectivity from realised results")
+    at.add_argument("--window", type=int, default=100,
+                    help="most recent closed trades to judge on")
+    at.add_argument("--apply", action="store_true", help="write the change")
+    at.set_defaults(func=cmd_autotune)
+
+    o = sub.add_parser("optimize", help="sweep trade geometry with out-of-sample validation")
+    o.add_argument("--years", type=float, default=5.0)
+    o.add_argument("--symbols", nargs="*")
+    o.add_argument("--max-hold", type=int, default=PAPER_MAX_HOLD_DAYS)
+    o.add_argument("--min-score", type=float, default=None,
+                   help="fix the score threshold instead of sweeping it")
+    o.add_argument("--apply", action="store_true",
+                   help="adopt the winner IF it validates out-of-sample")
+    o.set_defaults(func=cmd_optimize)
 
     t = sub.add_parser("test-telegram", help="verify bot credentials")
     t.set_defaults(func=cmd_test_telegram)

@@ -6,6 +6,7 @@ logic against constructed market scenarios. Run: python test_signal_tool.py
 """
 
 import math
+from pathlib import Path
 import sys
 
 from signal_tool import (
@@ -422,6 +423,512 @@ with_account(0)
 check("no share line when sizing is disabled",
       "sh " not in format_message([evaluate("TEST", moderate, NO_NEWS, NO_FLOW, RISK_ON)],
                                   RISK_ON))
+
+print("\nFree-tier survival (regressions from the first live run)")
+
+# 1. outputsize=full is a PREMIUM feature. The default must never request it.
+import inspect
+_src = inspect.getsource(ST.fetch_prices)
+check("fetch_prices defaults to compact, not premium-only full",
+      inspect.signature(ST.fetch_prices).parameters["full"].default is False)
+check("fetch_prices can still merge accumulated history", "merged" in _src)
+
+# 2. Pacing must happen before the request, not after a success.
+_pace = inspect.getsource(ST.av_pace)
+check("pacing uses a monotonic clock", "monotonic" in _pace)
+for fn in (ST.fetch_prices, ST.fetch_weekly):
+    s = inspect.getsource(fn)
+    check(f"{fn.__name__} paces before issuing the request",
+          s.index("av_pace()") < s.index("http_get_json"))
+
+_t0 = ST.time.monotonic()
+ST._av_last_request_at = 0.0
+ST.av_pace(); ST.av_pace()
+check("two paced calls are spaced by the rate interval",
+      ST.time.monotonic() - _t0 >= ST.AV_RATE_SLEEP * 0.9,
+      f"took {ST.time.monotonic()-_t0:.2f}s")
+
+# 3. With only 100 daily bars there is no 200d MA -- the weekly series must
+#    supply the trend, or the model's main guard vanishes.
+_short_daily = compute_technicals(make_bars([100.0 + i * 0.1 for i in range(100)]))
+check("100 daily bars really do lack a 200d MA", _short_daily.sma200 is None)
+check("...and therefore have no trend reference on their own",
+      _short_daily.trend_ma is None and _short_daily.trend_basis == "none")
+
+_weekly = make_bars([80.0 + i * 0.4 for i in range(120)])   # 120 weekly bars
+_withtrend = ST.attach_weekly_trend(_short_daily, _weekly)
+check("weekly bars supply a 40w trend reference", _withtrend.trend_ma is not None)
+check("trend basis is labelled 40w", _withtrend.trend_basis == "40w")
+check("weekly bars supply a 52-week high", _withtrend.high52w is not None)
+
+# A real 200d MA must win over the weekly stand-in.
+_long_daily = compute_technicals(make_bars([100.0 * (1.001 ** i) for i in range(260)]))
+check("daily 200d MA takes precedence when available",
+      ST.attach_weekly_trend(_long_daily, _weekly).trend_basis == "200d")
+
+# 4. No trend data at all must WITHHOLD points, never assume health.
+_no_trend_score, _no_trend_reasons = score_technicals(_short_daily)
+check("missing trend data withholds the trend points",
+      any("withheld" in r for r in _no_trend_reasons))
+check("missing trend data cannot reach the top tier",
+      _no_trend_score < 70, f"got {_no_trend_score}")
+
+# 5. The veto must work off the 40w reference too, not just the 200d.
+_knife_daily = compute_technicals(make_bars([200.0 * (0.993 ** i) for i in range(100)]))
+_knife_weekly = make_bars([400.0 * (0.99 ** i) for i in range(120)])
+_knife_w = ST.attach_weekly_trend(_knife_daily, _knife_weekly)
+check("weekly-based knife is below its 40w MA",
+      _knife_w.trend_ma is not None and _knife_w.close < _knife_w.trend_ma)
+check("veto fires using the 40w reference",
+      evaluate("KW", _knife_w, NewsSignal(), NO_FLOW, RISK_ON) is None)
+
+# 6. Budget must cover a cold start: every symbol needs daily + weekly at once.
+check("cold-start budget fits the free tier",
+      len(ST.WATCHLIST) * 2 + 1 <= 25,
+      f"{len(ST.WATCHLIST)}x2 + 1 news = {len(ST.WATCHLIST)*2+1}")
+check("steady-state budget leaves room for intraday",
+      len(ST.WATCHLIST) + 1 + len(ST.INTRADAY_WATCHLIST) <= 25)
+
+# 7. Intraday blending must carry the long-run context through.
+_b = ST.blend_intraday_with_daily(intra_t, _withtrend)
+check("blend carries trend_ma from the daily leg", _b.trend_ma == _withtrend.trend_ma)
+check("blend carries trend_basis", _b.trend_basis == _withtrend.trend_basis)
+check("blend carries the 52-week high", _b.high52w == _withtrend.high52w)
+
+print("\nProvider fallback (Twelve Data + Alpha Vantage)")
+
+import json as _json, importlib
+
+# Twelve Data response parsing, including its quirks.
+_td_payload = {"status":"ok","values":[
+    {"datetime":"2026-08-12","open":"10","high":"11","low":"9","close":"10.5","volume":"1000"},
+    {"datetime":"2026-08-11","open":"9","high":"10","low":"8","close":"9.5","volume":"900"}]}
+_orig_get = ST.http_get_json
+try:
+    ST.http_get_json = lambda url, **kw: _td_payload
+    ST.TD_KEY = "test"; ST._td_requests_used = 0; ST.TD_RATE_SLEEP = 0.0
+    _bars = ST.td_time_series("X")
+    check("twelve data parses values into bars", len(_bars) == 2)
+    check("twelve data bars are sorted oldest first", _bars[0].date < _bars[1].date)
+    check("twelve data close parsed correctly", approx(_bars[-1].close, 10.5))
+
+    # ETFs sometimes report null volume -- must not drop the bar.
+    ST.http_get_json = lambda url, **kw: {"status":"ok","values":[
+        {"datetime":"2026-08-12","open":"1","high":"1","low":"1","close":"1","volume":None}]}
+    check("null volume becomes 0 instead of dropping the bar",
+          ST.td_time_series("X")[0].volume == 0)
+
+    # An error payload must raise, not return junk.
+    ST.http_get_json = lambda url, **kw: {"status":"error","message":"limit reached"}
+    try:
+        ST.td_time_series("X"); check("twelve data error raises", False, "no raise")
+    except ST.DataError as e:
+        check("twelve data error raises DataError", "limit reached" in str(e))
+finally:
+    ST.http_get_json = _orig_get
+
+# Budget guard
+ST._td_requests_used = 0; ST.TD_DAILY_LIMIT = 2
+ST.td_budget_check(); ST.td_budget_check()
+try:
+    ST.td_budget_check(); check("twelve data budget caps", False, "no raise")
+except ST.DataError:
+    check("twelve data budget caps", True)
+ST._td_requests_used = 0; ST.TD_DAILY_LIMIT = 800
+
+# Merge semantics: union by date, newer wins, chronological out.
+_a = make_bars([1.0, 2.0, 3.0]); _b = make_bars([9.0, 9.0, 9.0, 9.0])
+_m = ST._merge_bars(_a, _b)
+check("merge unions by date", len(_m) == 4, f"got {len(_m)}")
+check("merge output is chronological", [x.date for x in _m] == sorted(x.date for x in _m))
+check("newer data wins on overlapping dates", _m[0].close == 9.0)
+check("merging with empty history is a no-op", len(ST._merge_bars([], _a)) == len(_a))
+
+# Round-trip through the cache format.
+_rt = ST._bars_from_json(_json.loads(_json.dumps(ST._bars_to_json(_a, "twelvedata"))))
+check("bars survive a cache round-trip", [x.date for x in _rt] == [x.date for x in _a])
+check("round-tripped closes are unchanged", approx(_rt[0].close, _a[0].close))
+
+# The watchlist must size itself to the available budget.
+check("without a TD key the watchlist stays inside AV's 25/day",
+      len(ST.INDICES + ST.MEGACAPS) * 2 + 1 <= 25)
+check("with a TD key the sector ETFs are included",
+      len(ST.INDICES + ST.MEGACAPS + ST.SECTORS) == 21)
+
+print("\nContinuous intraday scanning")
+
+from datetime import datetime as _dt, timezone as _tz
+
+def at(y, mo, d, h, mi):
+    return _dt(y, mo, d, h, mi, tzinfo=_tz.utc)
+
+# Aug 13 2026 is a Thursday. Market hours in UTC (EDT): 13:30 - 20:00.
+check("open during regular hours", ST.market_status(at(2026,8,13,15,0))[0])
+check("open right at the bell", ST.market_status(at(2026,8,13,13,30))[0])
+check("open at the close minute", ST.market_status(at(2026,8,13,20,0))[0])
+check("closed one minute before the open",
+      not ST.market_status(at(2026,8,13,13,29))[0])
+check("closed one minute after the close",
+      not ST.market_status(at(2026,8,13,20,1))[0])
+check("closed overnight", not ST.market_status(at(2026,8,13,3,0))[0])
+check("closed on Saturday", not ST.market_status(at(2026,8,15,15,0))[0])
+check("closed on Sunday", not ST.market_status(at(2026,8,16,15,0))[0])
+check("weekend reason is reported", ST.market_status(at(2026,8,15,15,0))[1] == "weekend")
+# Jul 3 2026 is an observed holiday (Independence Day) and a Friday.
+check("closed on a market holiday", not ST.market_status(at(2026,7,3,15,0))[0])
+check("holiday reason is reported",
+      ST.market_status(at(2026,7,3,15,0))[1] == "market holiday")
+check("before-open reason is specific",
+      ST.market_status(at(2026,8,13,12,0))[1] == "before the open")
+check("after-close reason is specific",
+      ST.market_status(at(2026,8,13,22,0))[1] == "after the close")
+
+# Intraday must hold a higher bar than end-of-day.
+check("intraday minimum is above the WATCH tier",
+      ST.INTRADAY_MIN_SCORE > ST.TIER_WATCH,
+      f"{ST.INTRADAY_MIN_SCORE} vs {ST.TIER_WATCH}")
+check("intraday minimum matches the STRONG tier",
+      ST.INTRADAY_MIN_SCORE == ST.TIER_STRONG)
+
+# Credit budget for a full session of 15-minute scans.
+_SWEEPS = 27  # 9:30 through 16:00 inclusive
+_intraday_credits = len(ST.INTRADAY_WATCHLIST) * _SWEEPS
+_eod_credits = len(ST.WATCHLIST)
+check("a full session of intraday scans fits free Twelve Data",
+      _intraday_credits + _eod_credits <= 800,
+      f"{_intraday_credits} intraday + {_eod_credits} EOD")
+check("15-minute bars make >27 sweeps/day pointless",
+      _SWEEPS * 15 >= 6.5 * 60, "a session is 390 minutes")
+
+# Usage must survive across processes, since every scan is a fresh run.
+import shutil as _sh
+_sh.rmtree("cache", ignore_errors=True)
+ST._av_requests_used, ST._td_requests_used = 0, 0
+ST.persist_usage()
+ST._av_requests_used, ST._td_requests_used = 7, 42
+ST.persist_usage()
+ST._av_requests_used, ST._td_requests_used = 0, 0     # simulate a new process
+ST.load_persisted_usage()
+check("Alpha Vantage usage survives a restart", ST._av_requests_used == 7,
+      f"got {ST._av_requests_used}")
+check("Twelve Data usage survives a restart", ST._td_requests_used == 42,
+      f"got {ST._td_requests_used}")
+check("usage is keyed by UTC date",
+      _dt.now(_tz.utc).date().isoformat() in ST._usage_path().name)
+_sh.rmtree("cache", ignore_errors=True)
+ST.load_persisted_usage()
+check("a new day starts the count at zero",
+      ST._av_requests_used == 0 and ST._td_requests_used == 0)
+
+# Corrupt usage file must not break a scan.
+ST.cache_path("x")  # ensure cache dir exists
+ST._usage_path().write_text("{not json")
+ST.load_persisted_usage()
+check("corrupt usage file falls back to zero", ST._av_requests_used == 0)
+_sh.rmtree("cache", ignore_errors=True)
+
+print("\nTrade plan")
+
+_plan = ST.build_trade_plan(moderate)
+check("a valid setup produces a plan", _plan is not None)
+check("stop sits below entry", _plan.stop < _plan.entry)
+check("target sits above entry", _plan.target > _plan.entry)
+check("entry never chases above the last close", _plan.entry <= moderate.close + 1e-9,
+      f"entry {_plan.entry} vs close {moderate.close}")
+check("risk/reward is computed consistently",
+      approx(_plan.rr, _plan.reward_per_share / _plan.risk_per_share, 0.01))
+check("stop distance is 1.5 ATR",
+      approx(_plan.entry - _plan.stop, 1.5 * moderate.close * moderate.atr_pct / 100, 0.02))
+check("target percent matches the levels",
+      approx(_plan.target_pct, (_plan.target - _plan.entry) / _plan.entry * 100, 0.01))
+check("holding estimate is at least 2 days", _plan.hold_days_est >= 2)
+check("holding estimate is capped at 60 days", _plan.hold_days_est <= 60)
+check("annualised volatility is reported", _plan.ann_vol_pct is not None)
+check("annualised vol exceeds daily ATR", _plan.ann_vol_pct > (_plan.atr_pct or 0))
+check("a flat series yields no plan (zero ATR)", ST.build_trade_plan(flat) is None)
+check("short history still yields a plan or None safely",
+      ST.build_trade_plan(short) is None or ST.build_trade_plan(short).entry > 0)
+
+_sig_with_plan = evaluate("TEST", moderate, NO_NEWS, NO_FLOW, RISK_ON)
+_msg = format_message([_sig_with_plan], RISK_ON)
+for _field, _label in (("Buy ≤", "entry"), ("Stop", "stop"), ("Target", "target"),
+                       ("R:R", "risk/reward"), ("Est. hold", "holding estimate"),
+                       ("ATR", "volatility")):
+    check(f"alert includes the {_label}", _field in _msg)
+
+
+print("\nPaper trading engine")
+
+import shutil as _sh2
+ST.TRADES_FILE = Path("test_trades.json")
+ST.PAPER_TRADE_USD = 100.0
+
+def fresh_book():
+    if ST.TRADES_FILE.exists(): ST.TRADES_FILE.unlink()
+    return ST.load_trades()
+
+_book = fresh_book()
+check("a new book is empty", _book == {"open": [], "closed": []})
+check("opening a trade succeeds", ST.open_paper_trade(_book, _sig_with_plan, False))
+check("the open position is recorded", len(_book["open"]) == 1)
+check("$100 buys the right share count",
+      approx(_book["open"][0]["shares"], 100.0 / _sig_with_plan.plan.entry, 1e-6))
+check("a second trade in the same name is refused",
+      not ST.open_paper_trade(_book, _sig_with_plan, False))
+check("...and does not duplicate the position", len(_book["open"]) == 1)
+
+_e = _book["open"][0]["entry"]; _st = _book["open"][0]["stop"]; _tg = _book["open"][0]["target"]
+
+def bars_after(lows_highs):
+    return [Bar(date=f"2099-01-{i+1:02d}", open=_e, high=h, low=l, close=(h+l)/2,
+                volume=1e6) for i, (l, h) in enumerate(lows_highs)]
+
+# Target hit -> a win of exactly the target distance.
+_b = fresh_book(); ST.open_paper_trade(_b, _sig_with_plan, False)
+_closed = ST.resolve_paper_trades(_b, {"TEST": bars_after([(_e, _tg + 1)])})
+check("a target hit closes the trade", len(_closed) == 1)
+check("target exit is booked at the target price", approx(_closed[0]["exit"], round(_tg, 2), 0.01))
+check("target exit is a profit", _closed[0]["pnl"] > 0)
+check("exit reason is recorded as target", _closed[0]["exit_reason"] == "target")
+check("the position leaves the open book", len(_b["open"]) == 0)
+
+# Stop hit -> a loss.
+_b = fresh_book(); ST.open_paper_trade(_b, _sig_with_plan, False)
+_closed = ST.resolve_paper_trades(_b, {"TEST": bars_after([(_st - 1, _e)])})
+check("a stop hit closes the trade", len(_closed) == 1 and _closed[0]["exit_reason"] == "stop")
+check("stop exit is a loss", _closed[0]["pnl"] < 0)
+
+# Both touched in one bar -> must assume the STOP, never the target.
+_b = fresh_book(); ST.open_paper_trade(_b, _sig_with_plan, False)
+_closed = ST.resolve_paper_trades(_b, {"TEST": bars_after([(_st - 1, _tg + 1)])})
+check("an ambiguous bar resolves pessimistically to the stop",
+      _closed[0]["exit_reason"] == "stop",
+      "assuming the target would flatter every result")
+
+# Neither touched -> stays open.
+_b = fresh_book(); ST.open_paper_trade(_b, _sig_with_plan, False)
+_closed = ST.resolve_paper_trades(_b, {"TEST": bars_after([(_e * 0.99, _e * 1.01)])})
+check("an unresolved trade stays open", len(_closed) == 0 and len(_b["open"]) == 1)
+
+# Bars on/before the entry date must be ignored (no same-bar lookahead).
+_b = fresh_book(); ST.open_paper_trade(_b, _sig_with_plan, False)
+_today = ST.datetime.now(ST.timezone.utc).date().isoformat()
+_same = [Bar(date=_today, open=_e, high=_tg + 5, low=_st - 5, close=_e, volume=1e6)]
+check("bars from the entry day cannot close the trade",
+      len(ST.resolve_paper_trades(_b, {"TEST": _same})) == 0)
+
+print("\nPaper statistics")
+
+_b = {"open": [], "closed": [
+    {"symbol":"A","pnl":10.0,"cost":100,"pnl_pct":10.0},
+    {"symbol":"B","pnl":-5.0,"cost":100,"pnl_pct":-5.0},
+    {"symbol":"C","pnl":20.0,"cost":100,"pnl_pct":20.0},
+    {"symbol":"D","pnl":-5.0,"cost":100,"pnl_pct":-5.0}]}
+_s = ST.paper_stats(_b)
+check("trade count is right", _s["trades"] == 4)
+check("wins and losses are counted", _s["wins"] == 2 and _s["losses"] == 2)
+check("win rate is right", approx(_s["win_rate"], 50.0, 0.01))
+check("total P/L is right", approx(_s["total_pnl"], 20.0, 0.01))
+check("profit factor = gross wins / gross losses", approx(_s["profit_factor"], 3.0, 0.01))
+check("return % is on capital deployed", approx(_s["return_pct"], 5.0, 0.01))
+check("average win is right", approx(_s["avg_win"], 15.0, 0.01))
+check("average loss is negative", _s["avg_loss"] < 0)
+check("best and worst are tracked", _s["best"] == 20.0 and _s["worst"] == -5.0)
+
+_nl = ST.paper_stats({"open": [], "closed": [{"symbol":"A","pnl":10.0,"cost":100}]})
+check("profit factor is None (not infinity) with no losses",
+      _nl["profit_factor"] is None)
+check("summary line handles the no-loss case", "PF —" in ST.paper_summary_line(_nl))
+_empty = ST.paper_stats({"open": [], "closed": []})
+check("empty book does not divide by zero", _empty["trades"] == 0 and _empty["win_rate"] == 0)
+check("empty summary says so", "no closed trades" in ST.paper_summary_line(_empty))
+
+_msg2 = format_message([_sig_with_plan], RISK_ON, stats=_s)
+check("the alert carries the paper scoreboard", "Paper:" in _msg2)
+check("alert with scoreboard stays under Telegram's limit", len(_msg2) < 4096)
+
+if ST.TRADES_FILE.exists(): ST.TRADES_FILE.unlink()
+ST.TRADES_FILE = Path("trades.json")
+
+print("\nBacktest trade simulator")
+
+def _bars(seq):
+    """seq of (low, high) -> bars; close midway."""
+    return [Bar(date=f"2099-01-{i+1:02d}", open=(l+h)/2, high=h, low=l,
+                close=(l+h)/2, volume=1e6) for i, (l, h) in enumerate(seq)]
+
+class _P:
+    def __init__(self, entry, stop, target):
+        self.entry, self.stop, self.target = entry, stop, target
+_plan100 = _P(100.0, 95.0, 110.0)
+
+# Bar 0 is the signal bar and is never tradable.
+# Limit never reached -> NO TRADE. Counting these would fake the results.
+r = ST.simulate_trade(_bars([(100,100),(101,105),(102,106),(103,107)]), 0, _plan100)
+check("an unfilled limit produces no trade", r is None)
+
+# Fills, then hits target.
+r = ST.simulate_trade(_bars([(100,100),(99,101),(105,111)]), 0, _plan100)
+check("a filled limit that reaches the target is a win",
+      r and r["exit_reason"] == "target")
+check("target exit books exactly the target move", approx(r["pnl_pct"], 10.0, 0.01))
+
+# Fills, then hits stop.
+r = ST.simulate_trade(_bars([(100,100),(99,101),(94,99)]), 0, _plan100)
+check("a filled limit that reaches the stop is a loss",
+      r and r["exit_reason"] == "stop")
+check("stop exit books exactly the stop move", approx(r["pnl_pct"], -5.0, 0.01))
+
+# Stop and target in the SAME bar -> must book the stop.
+r = ST.simulate_trade(_bars([(100,100),(94,111)]), 0, _plan100)
+check("stop wins ties against the target", r["exit_reason"] == "stop",
+      "assuming the target would inflate every backtest")
+
+# Fill window: a limit reached only on the 5th bar is too late.
+late = _bars([(100,100),(101,102),(102,103),(103,104),(99,101),(105,111)])
+check("a limit filled outside the fill window is skipped",
+      ST.simulate_trade(late, 0, _plan100, fill_window=3) is None)
+check("...but is taken with a wider fill window",
+      ST.simulate_trade(late, 0, _plan100, fill_window=5) is not None)
+
+# Time exit when neither level is touched.
+flat_bars = _bars([(100,100)] + [(99,101)] * 12)
+r = ST.simulate_trade(flat_bars, 0, _plan100, max_hold=5)
+check("an untouched trade exits on time", r and r["exit_reason"] == "time")
+check("time exit respects max_hold", r["days"] <= 5, f"held {r['days']}")
+
+# Running out of data must not crash or index past the end.
+r = ST.simulate_trade(_bars([(100,100),(99,101)]), 0, _plan100, max_hold=30)
+check("a truncated series exits safely", r is not None and r["exit_reason"] == "time")
+check("days held is never negative", r["days"] >= 0)
+
+print("\nBacktest aggregation")
+
+_t = [{"pnl_pct": 10.0, "days": 5, "exit_reason": "target"},
+      {"pnl_pct": -5.0, "days": 3, "exit_reason": "stop"},
+      {"pnl_pct": 20.0, "days": 8, "exit_reason": "target"},
+      {"pnl_pct": -5.0, "days": 2, "exit_reason": "stop"}]
+_a = ST._agg(_t)
+check("aggregate counts trades", _a["n"] == 4)
+check("aggregate win rate", approx(_a["win_rate"], 50.0, 0.01))
+check("aggregate average return", approx(_a["avg"], 5.0, 0.01))
+check("aggregate profit factor", approx(_a["pf"], 3.0, 0.01))
+check("aggregate average hold", approx(_a["avg_days"], 4.5, 0.01))
+check("exit reasons are tallied", _a["targets"] == 2 and _a["stops"] == 2)
+check("empty aggregate is safe", ST._agg([])["n"] == 0)
+check("profit factor is None with no losses",
+      ST._agg([{"pnl_pct": 5.0, "days": 1, "exit_reason": "target"}])["pf"] is None)
+check("row formatting handles an empty bucket", "no trades" in ST._fmt_row("X", ST._agg([])))
+check("row formatting handles n/a profit factor",
+      "n/a" in ST._fmt_row("X", ST._agg([{"pnl_pct":5.0,"days":1,"exit_reason":"target"}])))
+
+# The simulator must use the same tie-break rule as the live paper tracker.
+_pb = {"open": [], "closed": []}
+_sig2 = evaluate("TIE", moderate, NO_NEWS, NO_FLOW, RISK_ON)
+ST.TRADES_FILE = Path("test_trades2.json")
+if ST.TRADES_FILE.exists(): ST.TRADES_FILE.unlink()
+ST.open_paper_trade(_pb, _sig2, False)
+_e2, _s2, _t2 = _pb["open"][0]["entry"], _pb["open"][0]["stop"], _pb["open"][0]["target"]
+_amb = [Bar(date="2099-06-01", open=_e2, high=_t2 + 1, low=_s2 - 1, close=_e2, volume=1e6)]
+_live = ST.resolve_paper_trades(_pb, {"TIE": _amb})[0]["exit_reason"]
+_bt = ST.simulate_trade(
+    [Bar(date="2099-05-30", open=_e2, high=_e2, low=_e2, close=_e2, volume=1e6),
+     Bar(date="2099-06-01", open=_e2, high=_t2 + 1, low=_s2 - 1, close=_e2, volume=1e6)],
+    0, _P(_e2, _s2, _t2))["exit_reason"]
+check("backtest and live tracker break ties identically",
+      _live == _bt == "stop", f"live={_live} backtest={_bt}")
+if ST.TRADES_FILE.exists(): ST.TRADES_FILE.unlink()
+ST.TRADES_FILE = Path("trades.json")
+
+print("\nEnvironment parsing (GitHub empty-variable crash)")
+
+import os as _os, subprocess as _sp, sys as _sys
+
+def with_env(**kw):
+    old = {k: _os.environ.get(k) for k in kw}
+    _os.environ.update({k: v for k, v in kw.items() if v is not None})
+    for k, v in kw.items():
+        if v is None: _os.environ.pop(k, None)
+    return old
+
+def restore(old):
+    for k, v in old.items():
+        if v is None: _os.environ.pop(k, None)
+        else: _os.environ[k] = v
+
+# The exact GitHub Actions failure: an undefined repo variable arrives as "".
+_o = with_env(TEST_NUM="")
+check("empty string falls back to the default (the GH Actions crash)",
+      ST.env_float("TEST_NUM", 100.0) == 100.0)
+check("empty string works for ints too", ST.env_int("TEST_NUM", 30) == 30)
+check("empty string falls back for strings", ST.env_str("TEST_NUM", "x") == "x")
+restore(_o)
+
+_o = with_env(TEST_NUM="   ")
+check("whitespace-only is treated as unset", ST.env_float("TEST_NUM", 7.0) == 7.0)
+restore(_o)
+
+_o = with_env(TEST_NUM=None)
+check("a genuinely missing var uses the default", ST.env_float("TEST_NUM", 5.0) == 5.0)
+restore(_o)
+
+_o = with_env(TEST_NUM="42.5")
+check("a normal value parses", ST.env_float("TEST_NUM", 0.0) == 42.5)
+restore(_o)
+
+# Values a person might realistically type into a web form.
+for raw, want in (("$25,000", 25000.0), ("1,000", 1000.0), ("$100", 100.0),
+                  ("2.5%", 2.5), ("  50  ", 50.0)):
+    _o = with_env(TEST_NUM=raw)
+    check(f"{raw!r} parses to {want}", ST.env_float("TEST_NUM", -1) == want,
+          f"got {ST.env_float('TEST_NUM', -1)}")
+    restore(_o)
+
+_o = with_env(TEST_NUM="not-a-number")
+check("unparseable text falls back rather than crashing",
+      ST.env_float("TEST_NUM", 9.0) == 9.0)
+restore(_o)
+
+_o = with_env(TEST_NUM="30.7")
+check("env_int truncates a float string", ST.env_int("TEST_NUM", 0) == 30)
+restore(_o)
+
+_o = with_env(TEST_NUM="0")
+check("an explicit zero is respected, not treated as unset",
+      ST.env_float("TEST_NUM", 99.0) == 0.0)
+restore(_o)
+
+# The real regression: importing the module with every numeric var empty, in a
+# fresh interpreter, exactly as GitHub Actions does it.
+_blank = {k: "" for k in (
+    "PAPER_TRADE_USD", "PAPER_MAX_HOLD_DAYS", "INTRADAY_MIN_SCORE",
+    "ACCOUNT_SIZE", "RISK_PCT", "MAX_POSITION_PCT",
+    "AV_DAILY_LIMIT", "TD_DAILY_LIMIT", "TD_RATE_SLEEP",
+    "ALPHAVANTAGE_API_KEY", "TWELVEDATA_API_KEY",
+    "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "SEC_USER_AGENT")}
+_env = {**_os.environ, **_blank}
+_r = _sp.run([_sys.executable, "-c",
+              "import signal_tool as S; print(S.PAPER_TRADE_USD, S.PAPER_MAX_HOLD_DAYS, "
+              "S.INTRADAY_MIN_SCORE, S.AV_DAILY_LIMIT, S.TD_RATE_SLEEP)"],
+             env=_env, capture_output=True, text=True, cwd=_os.getcwd())
+check("module imports cleanly with every variable blank",
+      _r.returncode == 0, _r.stderr.strip()[-160:])
+check("defaults survive the blank import",
+      _r.stdout.strip() == "100.0 30 55.0 25 8.0", f"got {_r.stdout.strip()!r}")
+check("a blank SEC_USER_AGENT still yields a usable contact string",
+      _sp.run([_sys.executable, "-c",
+               "import signal_tool as S; assert '@' in S.SEC_USER_AGENT; print('ok')"],
+              env=_env, capture_output=True, text=True,
+              cwd=_os.getcwd()).returncode == 0)
+
+# Every command must at least start with a blank environment.
+for _cmd in (["history"], ["scan", "--dry-run", "--symbols", "SPY"],
+             ["backtest", "--years", "1", "--symbols", "SPY"]):
+    _rr = _sp.run([_sys.executable, "signal_tool.py"] + _cmd,
+                  env=_env, capture_output=True, text=True, cwd=_os.getcwd())
+    check(f"`{' '.join(_cmd[:2])}` does not crash on import with blank vars",
+          "ValueError" not in _rr.stderr and "Traceback" not in _rr.stderr,
+          _rr.stderr.strip()[-140:])
 
 print(f"\n{'='*54}")
 if FAILS:
