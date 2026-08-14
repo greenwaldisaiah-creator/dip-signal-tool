@@ -67,6 +67,23 @@
       "target_pct": 3.15,
       "stop_pct": 4.72,
       "hold_days_est": 2
+    },
+    {
+      "symbol": "AVGO",
+      "opened_at": "2026-08-14T16:16:33.063769+00:00",
+      "entry": 384.55,
+      "stop": 359.75,
+      "target": 407.39,
+      "shares": 0.260044,
+      "cost": 100.0,
+      "tier": "STRONG",
+      "score": 60.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.92,
+      "target_pct": 5.94,
+      "stop_pct": 6.45,
+      "hold_days_est": 3
     }
   ],
   "closed": []
