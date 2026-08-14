@@ -16,13 +16,18 @@ name: Dip Scan
 
 on:
   schedule:
-    # --- Continuous intraday: every 15 minutes through the US session ---
-    # 13:30-20:00 UTC = 9:30am-4:00pm ET during EDT. 15-minute bars only produce
-    # new data every 15 minutes, so this is the fastest cadence that actually
-    # tells you anything new. 27 sweeps/day.
-    - cron: "30,45 13 * * 1-5"        # 9:30, 9:45 ET
-    - cron: "*/15 14-19 * * 1-5"      # 10:00 - 3:45 ET
-    - cron: "0 20 * * 1-5"            # 4:00 ET
+    # --- Continuous intraday coverage -------------------------------------
+    # GitHub does NOT run */15 crons reliably. Scheduled workflows have no
+    # reserved capacity, delays of 15+ minutes are routine, and a missed slot
+    # is SKIPPED rather than queued -- a */15 schedule realistically survives
+    # about once an hour.
+    #
+    # So cron only STARTS a long-running job, which then scans every 15
+    # minutes internally using sleep. Two jobs tile the session because
+    # GitHub caps a single job at 6 hours. Same 27 scans/day, same credit
+    # cost, but the cadence is ours to control rather than GitHub's queue.
+    - cron: "28 13 * * 1-5"           # ~9:28am ET -> covers the morning half
+    - cron: "48 16 * * 1-5"           # ~12:48pm ET -> covers the afternoon half
     # --- End-of-day scan, on settled daily bars ---
     - cron: "15 21 * * 1-5"           # 5:15pm ET
   workflow_dispatch:
@@ -47,21 +52,25 @@ on:
         default: "3"
 
 
-# A slow run must never overlap the next 15-minute tick. Queued runs are
-# cancelled rather than piling up and double-spending the credit budget.
 # The scan commits its trade history back to the repo, so it needs write access
 # to its own contents. This uses the automatic GITHUB_TOKEN -- no personal token
 # is ever created or stored.
 permissions:
   contents: write
 
-concurrency:
-  group: dip-scan
-  cancel-in-progress: false
+# NOTE: concurrency is set per JOB, not workflow-wide. A workflow-level group
+# would queue every manual dispatch behind the 3.5-hour intraday loop, so
+# clicking "history" would sit waiting for hours.
 
 jobs:
   scan:
-    if: inputs.mode != 'backtest' && inputs.mode != 'optimize' && inputs.mode != 'optimize-preview'
+    concurrency:
+      group: dip-scan-scan
+      cancel-in-progress: false
+    if: >-
+      (github.event_name != 'schedule' || github.event.schedule == '15 21 * * 1-5')
+      && inputs.mode != 'backtest' && inputs.mode != 'optimize'
+      && inputs.mode != 'optimize-preview'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -96,11 +105,9 @@ jobs:
           if [ -z "$MODE" ]; then
             # Only the 21:15 cron is the end-of-day scan. Every other schedule
             # is one of the intraday ticks.
-            if [ "${{ github.event.schedule }}" = "15 21 * * 1-5" ]; then
-              MODE="end-of-day"
-            else
-              MODE="intraday"
-            fi
+            # Only the 21:15 cron reaches this job on a schedule; the
+            # intraday crons are handled by the intraday-loop job below.
+            MODE="end-of-day"
           fi
           case "$MODE" in
             telegram-test)      CMD="test-telegram" ;;
@@ -167,6 +174,92 @@ jobs:
             sleep 3
           done
           git push origin "HEAD:${GITHUB_REF_NAME}"
+
+  # Scans every 15 minutes from inside a single long-running job, because
+  # GitHub's scheduler cannot be relied on to fire that often. Two of these
+  # tile the session: the 13:28 cron covers the morning, the 16:48 cron the
+  # afternoon. Unlimited Actions minutes on a public repo make this free.
+  intraday-loop:
+    # Shared by both session halves so they can never overlap each other,
+    # while leaving manual runs free to start immediately.
+    concurrency:
+      group: dip-scan-intraday-loop
+      cancel-in-progress: false
+    if: github.event_name == 'schedule' && github.event.schedule != '15 21 * * 1-5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Restore cache
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: dip-scan-${{ github.run_id }}
+          restore-keys: dip-scan-
+
+      - name: Scan every 15 minutes until the session half ends
+        env:
+          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          ACCOUNT_SIZE: ${{ vars.ACCOUNT_SIZE }}
+          RISK_PCT: ${{ vars.RISK_PCT }}
+          MAX_POSITION_PCT: ${{ vars.MAX_POSITION_PCT }}
+          INTRADAY_MIN_SCORE: ${{ vars.INTRADAY_MIN_SCORE }}
+          ALERT_MIN_SCORE: ${{ vars.ALERT_MIN_SCORE }}
+          SLIPPAGE_BPS: ${{ vars.SLIPPAGE_BPS }}
+          COMMISSION_USD: ${{ vars.COMMISSION_USD }}
+          PAPER_TRADE_USD: ${{ vars.PAPER_TRADE_USD }}
+          PAPER_MAX_HOLD_DAYS: ${{ vars.PAPER_MAX_HOLD_DAYS }}
+        run: |
+          set -u
+          # 14 iterations x 15 min = 3h30m, so the two jobs tile 13:30-20:00 UTC.
+          ITERATIONS=14
+          git config user.name  "dip-scan-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for i in $(seq 1 $ITERATIONS); do
+            # Stop early on holidays and after the close instead of sleeping
+            # through hours of a shut market.
+            if ! python -c "import sys,signal_tool as S; sys.exit(0 if S.market_status()[0] else 1)"; then
+              echo "::notice::Market closed — ending the loop after $((i-1)) scans."
+              break
+            fi
+
+            echo "::group::Scan $i of $ITERATIONS  ($(date -u +%H:%M) UTC)"
+            # One bad scan must never kill the whole session's coverage.
+            python signal_tool.py scan --intraday || echo "::warning::Scan $i failed; continuing."
+            echo "::endgroup::"
+
+            # Commit after every iteration, so a crash cannot lose hours of
+            # trade history that only existed in the runner's filesystem.
+            if [ -n "$(git status --porcelain trades.json params.json state.json 2>/dev/null)" ]; then
+              for f in trades.json params.json state.json; do
+                [ -f "$f" ] && git add -- "$f"
+              done
+              if ! git diff --cached --quiet; then
+                git commit -m "chore: paper trading history [skip ci]"
+                for attempt in 1 2 3; do
+                  git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && break
+                  sleep 3
+                done
+                git push origin "HEAD:${GITHUB_REF_NAME}" || echo "::warning::push failed; will retry next scan"
+              fi
+            fi
+
+            [ "$i" -lt "$ITERATIONS" ] && sleep 900
+          done
+          echo "Loop finished."
 
   optimize:
     # Manual only. Sweeps trade geometry over years of history, so it needs the
