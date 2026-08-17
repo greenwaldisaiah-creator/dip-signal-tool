@@ -13,5 +13,10 @@
     "date": "2026-08-17T14:55:45.910931+00:00",
     "tier": "HIGH CONVICTION",
     "score": 70.0
+  },
+  "intraday:AAPL": {
+    "date": "2026-08-17T16:01:16.304129+00:00",
+    "tier": "HIGH CONVICTION",
+    "score": 70.9
   }
 }
