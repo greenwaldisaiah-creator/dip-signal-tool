@@ -254,6 +254,40 @@
       "target_pct": 1.17,
       "stop_pct": 1.75,
       "hold_days_est": 2
+    },
+    {
+      "symbol": "XLU",
+      "opened_at": "2026-08-18T18:26:13.664678+00:00",
+      "entry": 44.09,
+      "stop": 43.14,
+      "target": 44.73,
+      "shares": 2.268088,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 45.1,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.45,
+      "stop_pct": 2.15,
+      "hold_days_est": 3
+    },
+    {
+      "symbol": "AAPL",
+      "opened_at": "2026-08-18T18:26:13.664704+00:00",
+      "entry": 307.96,
+      "stop": 295.5,
+      "target": 316.28,
+      "shares": 0.324717,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.7,
+      "stop_pct": 4.05,
+      "hold_days_est": 2
     }
   ],
   "closed": [
