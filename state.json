@@ -18,5 +18,10 @@
     "date": "2026-08-17T16:01:16.304129+00:00",
     "tier": "HIGH CONVICTION",
     "score": 70.9
+  },
+  "intraday:GOOGL": {
+    "date": "2026-08-20T15:14:17.149325+00:00",
+    "tier": "HIGH CONVICTION",
+    "score": 70.9
   }
 }
