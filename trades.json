@@ -188,6 +188,25 @@
       "hold_days_est": 2
     },
     {
+      "symbol": "XLU",
+      "opened_at": "2026-08-21T15:11:53.967329+00:00",
+      "entry": 43.19,
+      "stop": 42.22,
+      "target": 43.84,
+      "shares": 2.315351,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 50.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.5,
+      "stop_pct": 2.25,
+      "hold_days_est": 2
+    }
+  ],
+  "closed": [
+    {
       "symbol": "XLV",
       "opened_at": "2026-08-20T19:36:37.023343+00:00",
       "entry": 172.53,
@@ -202,8 +221,14 @@
       "rr": 0.67,
       "target_pct": 1.69,
       "stop_pct": 2.52,
-      "hold_days_est": 3
+      "hold_days_est": 3,
+      "exit": 175.44,
+      "exit_reason": "target",
+      "exit_date": "2026-08-21",
+      "closed_at": "2026-08-21T15:11:53.669236+00:00",
+      "pnl": 1.69,
+      "costs_usd": 0.0,
+      "pnl_pct": 1.69
     }
-  ],
-  "closed": []
+  ]
 }
