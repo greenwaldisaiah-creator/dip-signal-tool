@@ -67,6 +67,23 @@
       "target_pct": 1.18,
       "stop_pct": 1.77,
       "hold_days_est": 2
+    },
+    {
+      "symbol": "XLU",
+      "opened_at": "2026-08-24T22:01:22.768401+00:00",
+      "entry": 42.65,
+      "stop": 41.69,
+      "target": 43.96,
+      "shares": 2.344666,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.9,
+      "mode": "eod",
+      "alerted": false,
+      "rr": 1.36,
+      "target_pct": 3.07,
+      "stop_pct": 2.25,
+      "hold_days_est": 5
     }
   ],
   "closed": []
