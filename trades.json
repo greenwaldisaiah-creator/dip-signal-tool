@@ -101,6 +101,40 @@
       "target_pct": 2.67,
       "stop_pct": 3.99,
       "hold_days_est": 3
+    },
+    {
+      "symbol": "XLE",
+      "opened_at": "2026-08-25T20:02:59.844790+00:00",
+      "entry": 62.07,
+      "stop": 60.38,
+      "target": 63.2,
+      "shares": 1.611084,
+      "cost": 100.0,
+      "tier": "STRONG",
+      "score": 59.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.82,
+      "stop_pct": 2.72,
+      "hold_days_est": 2
+    },
+    {
+      "symbol": "XLI",
+      "opened_at": "2026-08-25T20:02:59.844815+00:00",
+      "entry": 178.16,
+      "stop": 174.97,
+      "target": 180.29,
+      "shares": 0.561293,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.2,
+      "stop_pct": 1.79,
+      "hold_days_est": 3
     }
   ],
   "closed": [
