@@ -84,6 +84,23 @@
       "target_pct": 2.13,
       "stop_pct": 3.19,
       "hold_days_est": 3
+    },
+    {
+      "symbol": "NVDA",
+      "opened_at": "2026-08-25T19:29:05.460008+00:00",
+      "entry": 210.7,
+      "stop": 202.29,
+      "target": 216.32,
+      "shares": 0.474608,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.67,
+      "stop_pct": 3.99,
+      "hold_days_est": 3
     }
   ],
   "closed": [
