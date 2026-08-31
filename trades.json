@@ -254,6 +254,23 @@
       "target_pct": 0.97,
       "stop_pct": 1.42,
       "hold_days_est": 3
+    },
+    {
+      "symbol": "XLB",
+      "opened_at": "2026-08-31T16:26:04.420788+00:00",
+      "entry": 52.68,
+      "stop": 51.53,
+      "target": 53.46,
+      "shares": 1.898254,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.68,
+      "target_pct": 1.48,
+      "stop_pct": 2.18,
+      "hold_days_est": 2
     }
   ],
   "closed": [
