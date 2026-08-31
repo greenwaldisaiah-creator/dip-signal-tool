@@ -20,9 +20,9 @@
     "score": 70.9
   },
   "intraday:GOOGL": {
-    "date": "2026-08-20T15:14:17.149325+00:00",
+    "date": "2026-08-31T14:13:48.156649+00:00",
     "tier": "HIGH CONVICTION",
-    "score": 70.9
+    "score": 79.0
   },
   "intraday:NVDA": {
     "date": "2026-08-24T15:30:13.579104+00:00",
@@ -31,6 +31,16 @@
   },
   "intraday:XLE": {
     "date": "2026-08-24T15:30:13.579104+00:00",
+    "tier": "HIGH CONVICTION",
+    "score": 70.0
+  },
+  "intraday:XLI": {
+    "date": "2026-08-31T14:13:48.156649+00:00",
+    "tier": "HIGH CONVICTION",
+    "score": 75.0
+  },
+  "intraday:IWM": {
+    "date": "2026-08-31T14:13:48.156649+00:00",
     "tier": "HIGH CONVICTION",
     "score": 70.0
   }
