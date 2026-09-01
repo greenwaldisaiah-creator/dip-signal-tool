@@ -1,8 +1,8 @@
 {
   "intraday:AMZN": {
-    "date": "2026-08-31T18:37:35.354410+00:00",
+    "date": "2026-09-01T13:44:24.373357+00:00",
     "tier": "HIGH CONVICTION",
-    "score": 79.0
+    "score": 74.0
   },
   "intraday:AVGO": {
     "date": "2026-08-14T18:27:22.302669+00:00",
@@ -20,9 +20,9 @@
     "score": 70.9
   },
   "intraday:GOOGL": {
-    "date": "2026-08-31T14:13:48.156649+00:00",
+    "date": "2026-09-01T13:44:24.373357+00:00",
     "tier": "HIGH CONVICTION",
-    "score": 79.0
+    "score": 71.0
   },
   "intraday:NVDA": {
     "date": "2026-08-24T15:30:13.579104+00:00",
@@ -41,6 +41,16 @@
   },
   "intraday:IWM": {
     "date": "2026-08-31T14:13:48.156649+00:00",
+    "tier": "HIGH CONVICTION",
+    "score": 70.0
+  },
+  "intraday:MSFT": {
+    "date": "2026-09-01T13:44:24.373357+00:00",
+    "tier": "HIGH CONVICTION",
+    "score": 70.0
+  },
+  "intraday:XLK": {
+    "date": "2026-09-01T13:44:24.373357+00:00",
     "tier": "HIGH CONVICTION",
     "score": 70.0
   }
