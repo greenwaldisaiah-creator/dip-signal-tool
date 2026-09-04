@@ -237,6 +237,23 @@
       "target_pct": 1.33,
       "stop_pct": 1.97,
       "hold_days_est": 3
+    },
+    {
+      "symbol": "XLI",
+      "opened_at": "2026-09-04T19:45:56.886939+00:00",
+      "entry": 174.78,
+      "stop": 171.23,
+      "target": 177.15,
+      "shares": 0.572148,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.36,
+      "stop_pct": 2.03,
+      "hold_days_est": 3
     }
   ],
   "closed": [
