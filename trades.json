@@ -18,23 +18,6 @@
       "hold_days_est": 5
     },
     {
-      "symbol": "XLK",
-      "opened_at": "2026-08-31T13:40:20.944519+00:00",
-      "entry": 184.79,
-      "stop": 179.73,
-      "target": 188.17,
-      "shares": 0.541155,
-      "cost": 100.0,
-      "tier": "WATCH",
-      "score": 53.1,
-      "mode": "intraday",
-      "alerted": false,
-      "rr": 0.67,
-      "target_pct": 1.83,
-      "stop_pct": 2.74,
-      "hold_days_est": 2
-    },
-    {
       "symbol": "MSFT",
       "opened_at": "2026-08-31T14:13:47.182962+00:00",
       "entry": 507.8,
@@ -880,6 +863,30 @@
       "pnl": 1.31,
       "costs_usd": 0.0,
       "pnl_pct": 1.31
+    },
+    {
+      "symbol": "XLK",
+      "opened_at": "2026-08-31T13:40:20.944519+00:00",
+      "entry": 184.79,
+      "stop": 179.73,
+      "target": 188.17,
+      "shares": 0.541155,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 53.1,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.83,
+      "stop_pct": 2.74,
+      "hold_days_est": 2,
+      "exit": 188.17,
+      "exit_reason": "target",
+      "exit_date": "2026-09-04",
+      "closed_at": "2026-09-07T21:26:22.789765+00:00",
+      "pnl": 1.83,
+      "costs_usd": 0.0,
+      "pnl_pct": 1.83
     }
   ]
 }
