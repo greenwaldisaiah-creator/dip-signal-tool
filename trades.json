@@ -203,6 +203,40 @@
       "target_pct": 3.31,
       "stop_pct": 4.96,
       "hold_days_est": 3
+    },
+    {
+      "symbol": "MSFT",
+      "opened_at": "2026-09-08T18:41:49.544488+00:00",
+      "entry": 490.82,
+      "stop": 475.45,
+      "target": 501.08,
+      "shares": 0.203741,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.09,
+      "stop_pct": 3.13,
+      "hold_days_est": 3
+    },
+    {
+      "symbol": "XLV",
+      "opened_at": "2026-09-08T18:41:49.544510+00:00",
+      "entry": 167.01,
+      "stop": 162.78,
+      "target": 169.84,
+      "shares": 0.598767,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.69,
+      "stop_pct": 2.53,
+      "hold_days_est": 3
     }
   ],
   "closed": [
