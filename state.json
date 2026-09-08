@@ -1,6 +1,6 @@
 {
   "intraday:AMZN": {
-    "date": "2026-09-01T13:44:24.373357+00:00",
+    "date": "2026-09-08T14:16:21.228912+00:00",
     "tier": "HIGH CONVICTION",
     "score": 74.0
   },
@@ -15,9 +15,9 @@
     "score": 70.0
   },
   "intraday:AAPL": {
-    "date": "2026-08-17T16:01:16.304129+00:00",
+    "date": "2026-09-08T14:16:21.228912+00:00",
     "tier": "HIGH CONVICTION",
-    "score": 70.9
+    "score": 70.0
   },
   "intraday:GOOGL": {
     "date": "2026-09-01T13:44:24.373357+00:00",
@@ -63,5 +63,10 @@
     "date": "2026-09-08T13:43:08.885276+00:00",
     "tier": "HIGH CONVICTION",
     "score": 75.0
+  },
+  "intraday:XLP": {
+    "date": "2026-09-08T14:16:21.228912+00:00",
+    "tier": "HIGH CONVICTION",
+    "score": 70.0
   }
 }
