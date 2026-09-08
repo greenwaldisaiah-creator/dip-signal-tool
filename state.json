@@ -45,7 +45,7 @@
     "score": 70.0
   },
   "intraday:MSFT": {
-    "date": "2026-09-01T13:44:24.373357+00:00",
+    "date": "2026-09-08T13:43:08.885276+00:00",
     "tier": "HIGH CONVICTION",
     "score": 70.0
   },
@@ -58,5 +58,10 @@
     "date": "2026-09-02T21:22:36.259434+00:00",
     "tier": "HIGH CONVICTION",
     "score": 74.0
+  },
+  "intraday:XLV": {
+    "date": "2026-09-08T13:43:08.885276+00:00",
+    "tier": "HIGH CONVICTION",
+    "score": 75.0
   }
 }
