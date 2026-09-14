@@ -220,6 +220,23 @@
       "target_pct": 2.85,
       "stop_pct": 2.56,
       "hold_days_est": 4
+    },
+    {
+      "symbol": "IWM",
+      "opened_at": "2026-09-14T15:24:29.665093+00:00",
+      "entry": 287.02,
+      "stop": 282.59,
+      "target": 289.99,
+      "shares": 0.348408,
+      "cost": 100.0,
+      "tier": "STRONG",
+      "score": 59.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.03,
+      "stop_pct": 1.54,
+      "hold_days_est": 2
     }
   ],
   "closed": [
