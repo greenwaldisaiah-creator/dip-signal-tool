@@ -5,7 +5,7 @@
     "score": 80.0
   },
   "intraday:AVGO": {
-    "date": "2026-09-03T13:44:18.150488+00:00",
+    "date": "2026-09-14T13:46:21.624649+00:00",
     "tier": "HIGH CONVICTION",
     "score": 70.0
   },
@@ -25,9 +25,9 @@
     "score": 71.0
   },
   "intraday:NVDA": {
-    "date": "2026-09-10T13:46:09.132461+00:00",
+    "date": "2026-09-14T13:46:21.624649+00:00",
     "tier": "HIGH CONVICTION",
-    "score": 75.0
+    "score": 85.0
   },
   "intraday:XLE": {
     "date": "2026-09-04T13:44:34.297624+00:00",
@@ -35,9 +35,9 @@
     "score": 70.0
   },
   "intraday:XLI": {
-    "date": "2026-09-09T13:46:57.089109+00:00",
+    "date": "2026-09-14T13:46:21.624649+00:00",
     "tier": "HIGH CONVICTION",
-    "score": 80.0
+    "score": 72.0
   },
   "intraday:IWM": {
     "date": "2026-09-10T14:19:12.713367+00:00",
@@ -50,7 +50,7 @@
     "score": 70.0
   },
   "intraday:XLK": {
-    "date": "2026-09-10T13:46:09.132461+00:00",
+    "date": "2026-09-14T13:46:21.624649+00:00",
     "tier": "HIGH CONVICTION",
     "score": 70.0
   },
@@ -73,5 +73,10 @@
     "date": "2026-09-10T13:46:09.132461+00:00",
     "tier": "HIGH CONVICTION",
     "score": 75.0
+  },
+  "intraday:QQQ": {
+    "date": "2026-09-14T13:46:21.624649+00:00",
+    "tier": "HIGH CONVICTION",
+    "score": 70.0
   }
 }
