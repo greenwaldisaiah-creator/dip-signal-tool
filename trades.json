@@ -237,6 +237,23 @@
       "target_pct": 1.03,
       "stop_pct": 1.54,
       "hold_days_est": 2
+    },
+    {
+      "symbol": "XLF",
+      "opened_at": "2026-09-14T18:08:12.350421+00:00",
+      "entry": 56.79,
+      "stop": 55.87,
+      "target": 57.41,
+      "shares": 1.760873,
+      "cost": 100.0,
+      "tier": "STRONG",
+      "score": 55.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.09,
+      "stop_pct": 1.62,
+      "hold_days_est": 2
     }
   ],
   "closed": [
