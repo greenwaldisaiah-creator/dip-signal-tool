@@ -35,23 +35,6 @@
       "hold_days_est": 3
     },
     {
-      "symbol": "XLY",
-      "opened_at": "2026-09-09T13:46:56.574271+00:00",
-      "entry": 112.96,
-      "stop": 110.76,
-      "target": 114.43,
-      "shares": 0.885269,
-      "cost": 100.0,
-      "tier": "STRONG",
-      "score": 60.0,
-      "mode": "intraday",
-      "alerted": false,
-      "rr": 0.67,
-      "target_pct": 1.3,
-      "stop_pct": 1.95,
-      "hold_days_est": 3
-    },
-    {
       "symbol": "SPY",
       "opened_at": "2026-09-09T13:46:56.574295+00:00",
       "entry": 763.82,
@@ -1545,6 +1528,30 @@
       "pnl": 1.83,
       "costs_usd": 0.0,
       "pnl_pct": 1.83
+    },
+    {
+      "symbol": "XLY",
+      "opened_at": "2026-09-09T13:46:56.574271+00:00",
+      "entry": 112.96,
+      "stop": 110.76,
+      "target": 114.43,
+      "shares": 0.885269,
+      "cost": 100.0,
+      "tier": "STRONG",
+      "score": 60.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.3,
+      "stop_pct": 1.95,
+      "hold_days_est": 3,
+      "exit": 110.76,
+      "exit_reason": "stop",
+      "exit_date": "2026-09-15",
+      "closed_at": "2026-09-16T17:45:49.794569+00:00",
+      "pnl": -2.0,
+      "costs_usd": 0.049,
+      "pnl_pct": -2.0
     }
   ]
 }
