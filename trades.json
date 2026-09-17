@@ -203,6 +203,40 @@
       "target_pct": 2.29,
       "stop_pct": 3.43,
       "hold_days_est": 2
+    },
+    {
+      "symbol": "XLF",
+      "opened_at": "2026-09-17T20:01:54.662925+00:00",
+      "entry": 55.83,
+      "stop": 54.7,
+      "target": 56.6,
+      "shares": 1.791152,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 43.1,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.68,
+      "target_pct": 1.38,
+      "stop_pct": 2.02,
+      "hold_days_est": 2
+    },
+    {
+      "symbol": "NVDA",
+      "opened_at": "2026-09-17T20:01:54.662947+00:00",
+      "entry": 218.6,
+      "stop": 208.86,
+      "target": 225.1,
+      "shares": 0.457457,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.97,
+      "stop_pct": 4.46,
+      "hold_days_est": 3
     }
   ],
   "closed": [
