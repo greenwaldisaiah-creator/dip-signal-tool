@@ -86,23 +86,6 @@
       "hold_days_est": 3
     },
     {
-      "symbol": "AMZN",
-      "opened_at": "2026-09-15T17:48:24.644247+00:00",
-      "entry": 246.4,
-      "stop": 237.68,
-      "target": 252.22,
-      "shares": 0.405844,
-      "cost": 100.0,
-      "tier": "STRONG",
-      "score": 55.9,
-      "mode": "intraday",
-      "alerted": false,
-      "rr": 0.67,
-      "target_pct": 2.36,
-      "stop_pct": 3.54,
-      "hold_days_est": 2
-    },
-    {
       "symbol": "MSFT",
       "opened_at": "2026-09-15T19:59:14.375529+00:00",
       "entry": 496.14,
@@ -236,6 +219,23 @@
       "rr": 0.67,
       "target_pct": 2.97,
       "stop_pct": 4.46,
+      "hold_days_est": 3
+    },
+    {
+      "symbol": "IWM",
+      "opened_at": "2026-09-18T17:13:37.089556+00:00",
+      "entry": 281.34,
+      "stop": 276.05,
+      "target": 284.89,
+      "shares": 0.355442,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 50.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.26,
+      "stop_pct": 1.88,
       "hold_days_est": 3
     }
   ],
@@ -1727,6 +1727,30 @@
       "pnl": 2.17,
       "costs_usd": 0.0,
       "pnl_pct": 2.17
+    },
+    {
+      "symbol": "AMZN",
+      "opened_at": "2026-09-15T17:48:24.644247+00:00",
+      "entry": 246.4,
+      "stop": 237.68,
+      "target": 252.22,
+      "shares": 0.405844,
+      "cost": 100.0,
+      "tier": "STRONG",
+      "score": 55.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.36,
+      "stop_pct": 3.54,
+      "hold_days_est": 2,
+      "exit": 252.22,
+      "exit_reason": "target",
+      "exit_date": "2026-09-17",
+      "closed_at": "2026-09-18T17:13:36.547027+00:00",
+      "pnl": 2.36,
+      "costs_usd": 0.0,
+      "pnl_pct": 2.36
     }
   ]
 }
