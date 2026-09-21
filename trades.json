@@ -152,6 +152,40 @@
       "target_pct": 1.38,
       "stop_pct": 2.02,
       "hold_days_est": 2
+    },
+    {
+      "symbol": "XLP",
+      "opened_at": "2026-09-21T20:01:40.614273+00:00",
+      "entry": 81.9,
+      "stop": 80.53,
+      "target": 82.81,
+      "shares": 1.221001,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 47.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.66,
+      "target_pct": 1.11,
+      "stop_pct": 1.67,
+      "hold_days_est": 2
+    },
+    {
+      "symbol": "XLC",
+      "opened_at": "2026-09-21T20:01:40.614293+00:00",
+      "entry": 113.8,
+      "stop": 111.0,
+      "target": 115.68,
+      "shares": 0.878735,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.65,
+      "stop_pct": 2.46,
+      "hold_days_est": 2
     }
   ],
   "closed": [
