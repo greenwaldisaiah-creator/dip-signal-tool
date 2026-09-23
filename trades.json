@@ -135,6 +135,23 @@
       "target_pct": 1.27,
       "stop_pct": 1.89,
       "hold_days_est": 2
+    },
+    {
+      "symbol": "XLV",
+      "opened_at": "2026-09-23T18:32:15.890133+00:00",
+      "entry": 167.66,
+      "stop": 164.28,
+      "target": 169.92,
+      "shares": 0.596445,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 45.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.35,
+      "stop_pct": 2.02,
+      "hold_days_est": 2
     }
   ],
   "closed": [
