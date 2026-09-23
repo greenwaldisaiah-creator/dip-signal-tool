@@ -1,23 +1,6 @@
 {
   "open": [
     {
-      "symbol": "TSLA",
-      "opened_at": "2026-09-04T13:44:33.408588+00:00",
-      "entry": 359.25,
-      "stop": 337.08,
-      "target": 380.34,
-      "shares": 0.278358,
-      "cost": 100.0,
-      "tier": "STRONG",
-      "score": 60.0,
-      "mode": "intraday",
-      "alerted": false,
-      "rr": 0.95,
-      "target_pct": 5.87,
-      "stop_pct": 6.17,
-      "hold_days_est": 3
-    },
-    {
       "symbol": "XLB",
       "opened_at": "2026-09-10T13:46:08.588529+00:00",
       "entry": 50.79,
@@ -49,23 +32,6 @@
       "rr": 0.85,
       "target_pct": 1.86,
       "stop_pct": 2.18,
-      "hold_days_est": 3
-    },
-    {
-      "symbol": "XLU",
-      "opened_at": "2026-09-15T19:59:14.375554+00:00",
-      "entry": 41.3,
-      "stop": 40.35,
-      "target": 41.95,
-      "shares": 2.421308,
-      "cost": 100.0,
-      "tier": "WATCH",
-      "score": 45.9,
-      "mode": "intraday",
-      "alerted": false,
-      "rr": 0.68,
-      "target_pct": 1.57,
-      "stop_pct": 2.3,
       "hold_days_est": 3
     },
     {
@@ -151,6 +117,23 @@
       "rr": 0.67,
       "target_pct": 2.48,
       "stop_pct": 3.71,
+      "hold_days_est": 2
+    },
+    {
+      "symbol": "IWM",
+      "opened_at": "2026-09-23T17:59:31.864737+00:00",
+      "entry": 280.85,
+      "stop": 275.53,
+      "target": 284.41,
+      "shares": 0.356062,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 50.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.27,
+      "stop_pct": 1.89,
       "hold_days_est": 2
     }
   ],
@@ -1954,6 +1937,54 @@
       "pnl": 1.11,
       "costs_usd": 0.0,
       "pnl_pct": 1.11
+    },
+    {
+      "symbol": "TSLA",
+      "opened_at": "2026-09-04T13:44:33.408588+00:00",
+      "entry": 359.25,
+      "stop": 337.08,
+      "target": 380.34,
+      "shares": 0.278358,
+      "cost": 100.0,
+      "tier": "STRONG",
+      "score": 60.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.95,
+      "target_pct": 5.87,
+      "stop_pct": 6.17,
+      "hold_days_est": 3,
+      "exit": 380.34,
+      "exit_reason": "target",
+      "exit_date": "2026-09-22",
+      "closed_at": "2026-09-23T17:59:31.331877+00:00",
+      "pnl": 5.87,
+      "costs_usd": 0.0,
+      "pnl_pct": 5.87
+    },
+    {
+      "symbol": "XLU",
+      "opened_at": "2026-09-15T19:59:14.375554+00:00",
+      "entry": 41.3,
+      "stop": 40.35,
+      "target": 41.95,
+      "shares": 2.421308,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 45.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.68,
+      "target_pct": 1.57,
+      "stop_pct": 2.3,
+      "hold_days_est": 3,
+      "exit": 40.35,
+      "exit_reason": "stop",
+      "exit_date": "2026-09-23",
+      "closed_at": "2026-09-23T17:59:31.331877+00:00",
+      "pnl": -2.35,
+      "costs_usd": 0.0488,
+      "pnl_pct": -2.35
     }
   ]
 }
