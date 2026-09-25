@@ -1,23 +1,6 @@
 {
   "open": [
     {
-      "symbol": "XLB",
-      "opened_at": "2026-09-10T13:46:08.588529+00:00",
-      "entry": 50.79,
-      "stop": 49.55,
-      "target": 51.62,
-      "shares": 1.968892,
-      "cost": 100.0,
-      "tier": "HIGH CONVICTION",
-      "score": 75.0,
-      "mode": "intraday",
-      "alerted": true,
-      "rr": 0.67,
-      "target_pct": 1.63,
-      "stop_pct": 2.44,
-      "hold_days_est": 2
-    },
-    {
       "symbol": "XLI",
       "opened_at": "2026-09-14T13:46:20.988924+00:00",
       "entry": 169.24,
@@ -135,6 +118,23 @@
       "target_pct": 5.43,
       "stop_pct": 2.2,
       "hold_days_est": 8
+    },
+    {
+      "symbol": "XLE",
+      "opened_at": "2026-09-25T18:06:19.879786+00:00",
+      "entry": 61.5,
+      "stop": 59.47,
+      "target": 62.87,
+      "shares": 1.626016,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 43.1,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.23,
+      "stop_pct": 3.3,
+      "hold_days_est": 3
     }
   ],
   "closed": [
@@ -2057,6 +2057,30 @@
       "pnl": 1.35,
       "costs_usd": 0.0,
       "pnl_pct": 1.35
+    },
+    {
+      "symbol": "XLB",
+      "opened_at": "2026-09-10T13:46:08.588529+00:00",
+      "entry": 50.79,
+      "stop": 49.55,
+      "target": 51.62,
+      "shares": 1.968892,
+      "cost": 100.0,
+      "tier": "HIGH CONVICTION",
+      "score": 75.0,
+      "mode": "intraday",
+      "alerted": true,
+      "rr": 0.67,
+      "target_pct": 1.63,
+      "stop_pct": 2.44,
+      "hold_days_est": 2,
+      "exit": 49.55,
+      "exit_reason": "stop",
+      "exit_date": "2026-09-25",
+      "closed_at": "2026-09-25T18:06:19.596434+00:00",
+      "pnl": -2.49,
+      "costs_usd": 0.0488,
+      "pnl_pct": -2.49
     }
   ]
 }
