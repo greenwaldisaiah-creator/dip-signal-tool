@@ -152,6 +152,23 @@
       "target_pct": 3.77,
       "stop_pct": 2.07,
       "hold_days_est": 6
+    },
+    {
+      "symbol": "GOOGL",
+      "opened_at": "2026-10-01T19:00:35.707186+00:00",
+      "entry": 336.88,
+      "stop": 323.72,
+      "target": 345.67,
+      "shares": 0.296842,
+      "cost": 100.0,
+      "tier": "STRONG",
+      "score": 56.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.61,
+      "stop_pct": 3.91,
+      "hold_days_est": 2
     }
   ],
   "closed": [
