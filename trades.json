@@ -169,6 +169,23 @@
       "target_pct": 3.83,
       "stop_pct": 2.02,
       "hold_days_est": 6
+    },
+    {
+      "symbol": "META",
+      "opened_at": "2026-10-02T19:43:10.764132+00:00",
+      "entry": 726.31,
+      "stop": 682.42,
+      "target": 755.59,
+      "shares": 0.137682,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 43.2,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 4.03,
+      "stop_pct": 6.04,
+      "hold_days_est": 2
     }
   ],
   "closed": [
