@@ -52,23 +52,6 @@
       "hold_days_est": 7
     },
     {
-      "symbol": "XLP",
-      "opened_at": "2026-10-01T00:34:49.750601+00:00",
-      "entry": 80.59,
-      "stop": 79.11,
-      "target": 83.12,
-      "shares": 1.240849,
-      "cost": 100.0,
-      "tier": "WATCH",
-      "score": 45.9,
-      "mode": "eod",
-      "alerted": false,
-      "rr": 1.71,
-      "target_pct": 3.14,
-      "stop_pct": 1.84,
-      "hold_days_est": 6
-    },
-    {
       "symbol": "XLY",
       "opened_at": "2026-10-01T00:34:49.750618+00:00",
       "entry": 107.8,
@@ -2406,6 +2389,30 @@
       "pnl": 2.61,
       "costs_usd": 0.0,
       "pnl_pct": 2.61
+    },
+    {
+      "symbol": "XLP",
+      "opened_at": "2026-10-01T00:34:49.750601+00:00",
+      "entry": 80.59,
+      "stop": 79.11,
+      "target": 83.12,
+      "shares": 1.240849,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 45.9,
+      "mode": "eod",
+      "alerted": false,
+      "rr": 1.71,
+      "target_pct": 3.14,
+      "stop_pct": 1.84,
+      "hold_days_est": 6,
+      "exit": 83.12,
+      "exit_reason": "target",
+      "exit_date": "2026-10-08",
+      "closed_at": "2026-10-09T01:14:36.210309+00:00",
+      "pnl": 3.14,
+      "costs_usd": 0.0,
+      "pnl_pct": 3.14
     }
   ]
 }
