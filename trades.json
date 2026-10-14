@@ -52,23 +52,6 @@
       "hold_days_est": 6
     },
     {
-      "symbol": "GOOGL",
-      "opened_at": "2026-10-09T20:02:32.838163+00:00",
-      "entry": 350.0,
-      "stop": 336.65,
-      "target": 358.91,
-      "shares": 0.285714,
-      "cost": 100.0,
-      "tier": "WATCH",
-      "score": 45.0,
-      "mode": "intraday",
-      "alerted": false,
-      "rr": 0.67,
-      "target_pct": 2.55,
-      "stop_pct": 3.81,
-      "hold_days_est": 2
-    },
-    {
       "symbol": "NVDA",
       "opened_at": "2026-10-13T19:57:44.659587+00:00",
       "entry": 224.84,
@@ -2660,6 +2643,30 @@
       "pnl": -0.39,
       "costs_usd": 0.0498,
       "pnl_pct": -0.39
+    },
+    {
+      "symbol": "GOOGL",
+      "opened_at": "2026-10-09T20:02:32.838163+00:00",
+      "entry": 350.0,
+      "stop": 336.65,
+      "target": 358.91,
+      "shares": 0.285714,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 45.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.55,
+      "stop_pct": 3.81,
+      "hold_days_est": 2,
+      "exit": 358.91,
+      "exit_reason": "target",
+      "exit_date": "2026-10-14",
+      "closed_at": "2026-10-14T23:56:38.407986+00:00",
+      "pnl": 2.55,
+      "costs_usd": 0.0,
+      "pnl_pct": 2.55
     }
   ]
 }
