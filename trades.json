@@ -35,23 +35,6 @@
       "hold_days_est": 2
     },
     {
-      "symbol": "AAPL",
-      "opened_at": "2026-10-15T18:25:16.892667+00:00",
-      "entry": 342.0,
-      "stop": 332.15,
-      "target": 348.57,
-      "shares": 0.292398,
-      "cost": 100.0,
-      "tier": "WATCH",
-      "score": 43.1,
-      "mode": "intraday",
-      "alerted": false,
-      "rr": 0.67,
-      "target_pct": 1.92,
-      "stop_pct": 2.88,
-      "hold_days_est": 3
-    },
-    {
       "symbol": "NVDA",
       "opened_at": "2026-10-15T20:06:18.740689+00:00",
       "entry": 216.35,
@@ -186,6 +169,23 @@
       "target_pct": 0.96,
       "stop_pct": 1.44,
       "hold_days_est": 3
+    },
+    {
+      "symbol": "XLP",
+      "opened_at": "2026-10-23T18:00:46.491270+00:00",
+      "entry": 87.55,
+      "stop": 85.5,
+      "target": 88.93,
+      "shares": 1.142204,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.58,
+      "stop_pct": 2.34,
+      "hold_days_est": 2
     }
   ],
   "closed": [
@@ -3092,6 +3092,30 @@
       "pnl": -4.63,
       "costs_usd": 0.0477,
       "pnl_pct": -4.63
+    },
+    {
+      "symbol": "AAPL",
+      "opened_at": "2026-10-15T18:25:16.892667+00:00",
+      "entry": 342.0,
+      "stop": 332.15,
+      "target": 348.57,
+      "shares": 0.292398,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 43.1,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.92,
+      "stop_pct": 2.88,
+      "hold_days_est": 3,
+      "exit": 348.57,
+      "exit_reason": "target",
+      "exit_date": "2026-10-23",
+      "closed_at": "2026-10-23T18:00:44.714412+00:00",
+      "pnl": 1.92,
+      "costs_usd": 0.0,
+      "pnl_pct": 1.92
     }
   ]
 }
