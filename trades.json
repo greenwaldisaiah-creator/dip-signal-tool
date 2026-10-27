@@ -152,6 +152,40 @@
       "target_pct": 1.71,
       "stop_pct": 2.56,
       "hold_days_est": 3
+    },
+    {
+      "symbol": "TSLA",
+      "opened_at": "2026-10-27T20:00:30.907939+00:00",
+      "entry": 404.15,
+      "stop": 383.54,
+      "target": 417.9,
+      "shares": 0.247433,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 3.4,
+      "stop_pct": 5.1,
+      "hold_days_est": 2
+    },
+    {
+      "symbol": "XLK",
+      "opened_at": "2026-10-27T20:00:30.907964+00:00",
+      "entry": 189.09,
+      "stop": 182.57,
+      "target": 193.45,
+      "shares": 0.528849,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.31,
+      "stop_pct": 3.45,
+      "hold_days_est": 3
     }
   ],
   "closed": [
