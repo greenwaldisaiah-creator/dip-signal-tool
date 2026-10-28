@@ -86,23 +86,6 @@
       "hold_days_est": 2
     },
     {
-      "symbol": "AMZN",
-      "opened_at": "2026-10-22T18:11:06.615371+00:00",
-      "entry": 247.49,
-      "stop": 237.02,
-      "target": 254.48,
-      "shares": 0.404057,
-      "cost": 100.0,
-      "tier": "STRONG",
-      "score": 55.0,
-      "mode": "intraday",
-      "alerted": false,
-      "rr": 0.67,
-      "target_pct": 2.82,
-      "stop_pct": 4.23,
-      "hold_days_est": 2
-    },
-    {
       "symbol": "GOOGL",
       "opened_at": "2026-10-22T18:11:06.615380+00:00",
       "entry": 323.43,
@@ -3188,6 +3171,30 @@
       "pnl": 0.96,
       "costs_usd": 0.0,
       "pnl_pct": 0.96
+    },
+    {
+      "symbol": "AMZN",
+      "opened_at": "2026-10-22T18:11:06.615371+00:00",
+      "entry": 247.49,
+      "stop": 237.02,
+      "target": 254.48,
+      "shares": 0.404057,
+      "cost": 100.0,
+      "tier": "STRONG",
+      "score": 55.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.82,
+      "stop_pct": 4.23,
+      "hold_days_est": 2,
+      "exit": 254.48,
+      "exit_reason": "target",
+      "exit_date": "2026-10-27",
+      "closed_at": "2026-10-28T19:03:58.577852+00:00",
+      "pnl": 2.82,
+      "costs_usd": 0.0,
+      "pnl_pct": 2.82
     }
   ]
 }
