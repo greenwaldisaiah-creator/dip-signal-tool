@@ -86,23 +86,6 @@
       "hold_days_est": 2
     },
     {
-      "symbol": "GOOGL",
-      "opened_at": "2026-10-22T18:11:06.615380+00:00",
-      "entry": 323.43,
-      "stop": 310.96,
-      "target": 331.75,
-      "shares": 0.309186,
-      "cost": 100.0,
-      "tier": "STRONG",
-      "score": 55.0,
-      "mode": "intraday",
-      "alerted": false,
-      "rr": 0.67,
-      "target_pct": 2.57,
-      "stop_pct": 3.86,
-      "hold_days_est": 3
-    },
-    {
       "symbol": "XLP",
       "opened_at": "2026-10-23T18:00:46.491270+00:00",
       "entry": 87.55,
@@ -118,23 +101,6 @@
       "target_pct": 1.58,
       "stop_pct": 2.34,
       "hold_days_est": 2
-    },
-    {
-      "symbol": "XLC",
-      "opened_at": "2026-10-26T19:33:57.108698+00:00",
-      "entry": 103.32,
-      "stop": 100.67,
-      "target": 105.09,
-      "shares": 0.967867,
-      "cost": 100.0,
-      "tier": "WATCH",
-      "score": 40.9,
-      "mode": "intraday",
-      "alerted": false,
-      "rr": 0.67,
-      "target_pct": 1.71,
-      "stop_pct": 2.56,
-      "hold_days_est": 3
     },
     {
       "symbol": "TSLA",
@@ -169,6 +135,23 @@
       "target_pct": 2.31,
       "stop_pct": 3.45,
       "hold_days_est": 3
+    },
+    {
+      "symbol": "AMZN",
+      "opened_at": "2026-10-29T19:10:17.135698+00:00",
+      "entry": 244.12,
+      "stop": 233.62,
+      "target": 251.13,
+      "shares": 0.409635,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 48.1,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.87,
+      "stop_pct": 4.3,
+      "hold_days_est": 2
     }
   ],
   "closed": [
@@ -3195,6 +3178,54 @@
       "pnl": 2.82,
       "costs_usd": 0.0,
       "pnl_pct": 2.82
+    },
+    {
+      "symbol": "GOOGL",
+      "opened_at": "2026-10-22T18:11:06.615380+00:00",
+      "entry": 323.43,
+      "stop": 310.96,
+      "target": 331.75,
+      "shares": 0.309186,
+      "cost": 100.0,
+      "tier": "STRONG",
+      "score": 55.0,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 2.57,
+      "stop_pct": 3.86,
+      "hold_days_est": 3,
+      "exit": 310.96,
+      "exit_reason": "stop",
+      "exit_date": "2026-10-29",
+      "closed_at": "2026-10-29T19:10:16.174636+00:00",
+      "pnl": -3.9,
+      "costs_usd": 0.0481,
+      "pnl_pct": -3.9
+    },
+    {
+      "symbol": "XLC",
+      "opened_at": "2026-10-26T19:33:57.108698+00:00",
+      "entry": 103.32,
+      "stop": 100.67,
+      "target": 105.09,
+      "shares": 0.967867,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.71,
+      "stop_pct": 2.56,
+      "hold_days_est": 3,
+      "exit": 100.67,
+      "exit_reason": "stop",
+      "exit_date": "2026-10-29",
+      "closed_at": "2026-10-29T19:10:16.174636+00:00",
+      "pnl": -2.61,
+      "costs_usd": 0.0487,
+      "pnl_pct": -2.61
     }
   ]
 }
