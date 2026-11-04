@@ -69,23 +69,6 @@
       "hold_days_est": 2
     },
     {
-      "symbol": "AAPL",
-      "opened_at": "2026-10-30T18:47:35.338990+00:00",
-      "entry": 343.22,
-      "stop": 333.18,
-      "target": 349.93,
-      "shares": 0.291358,
-      "cost": 100.0,
-      "tier": "WATCH",
-      "score": 40.9,
-      "mode": "intraday",
-      "alerted": false,
-      "rr": 0.67,
-      "target_pct": 1.96,
-      "stop_pct": 2.93,
-      "hold_days_est": 2
-    },
-    {
       "symbol": "MSFT",
       "opened_at": "2026-11-03T02:55:57.199745+00:00",
       "entry": 507.12,
@@ -135,6 +118,40 @@
       "target_pct": 9.55,
       "stop_pct": 5.04,
       "hold_days_est": 6
+    },
+    {
+      "symbol": "QQQ",
+      "opened_at": "2026-11-04T01:21:13.750754+00:00",
+      "entry": 678.61,
+      "stop": 656.8,
+      "target": 720.72,
+      "shares": 0.14736,
+      "cost": 100.0,
+      "tier": "STRONG",
+      "score": 55.9,
+      "mode": "eod",
+      "alerted": false,
+      "rr": 1.93,
+      "target_pct": 6.21,
+      "stop_pct": 3.21,
+      "hold_days_est": 6
+    },
+    {
+      "symbol": "AAPL",
+      "opened_at": "2026-11-04T01:21:13.750775+00:00",
+      "entry": 331.89,
+      "stop": 320.93,
+      "target": 342.27,
+      "shares": 0.301305,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 50.0,
+      "mode": "eod",
+      "alerted": false,
+      "rr": 0.95,
+      "target_pct": 3.13,
+      "stop_pct": 3.3,
+      "hold_days_est": 3
     }
   ],
   "closed": [
@@ -3521,6 +3538,30 @@
       "pnl": 3.25,
       "costs_usd": 0.0,
       "pnl_pct": 3.25
+    },
+    {
+      "symbol": "AAPL",
+      "opened_at": "2026-10-30T18:47:35.338990+00:00",
+      "entry": 343.22,
+      "stop": 333.18,
+      "target": 349.93,
+      "shares": 0.291358,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.9,
+      "mode": "intraday",
+      "alerted": false,
+      "rr": 0.67,
+      "target_pct": 1.96,
+      "stop_pct": 2.93,
+      "hold_days_est": 2,
+      "exit": 333.18,
+      "exit_reason": "stop",
+      "exit_date": "2026-11-03",
+      "closed_at": "2026-11-04T01:21:12.349066+00:00",
+      "pnl": -2.97,
+      "costs_usd": 0.0485,
+      "pnl_pct": -2.97
     }
   ]
 }
