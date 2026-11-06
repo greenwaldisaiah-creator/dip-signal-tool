@@ -95,13 +95,23 @@
     "score": 70.0
   },
   "QQQ": {
-    "date": "2026-10-31T00:44:18.094759+00:00",
+    "date": "2026-11-06T01:33:38.800329+00:00",
     "tier": "HIGH CONVICTION",
-    "score": 70.9
+    "score": 79.0
   },
   "XLK": {
     "date": "2026-11-03T02:55:57.681082+00:00",
     "tier": "HIGH CONVICTION",
     "score": 81.0
+  },
+  "XLE": {
+    "date": "2026-11-06T01:33:38.800329+00:00",
+    "tier": "HIGH CONVICTION",
+    "score": 81.0
+  },
+  "SPY": {
+    "date": "2026-11-06T01:33:38.800329+00:00",
+    "tier": "HIGH CONVICTION",
+    "score": 75.9
   }
 }
