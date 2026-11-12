@@ -1,23 +1,6 @@
 {
   "open": [
     {
-      "symbol": "XLC",
-      "opened_at": "2026-10-30T00:56:37.904211+00:00",
-      "entry": 101.33,
-      "stop": 98.52,
-      "target": 108.94,
-      "shares": 0.986875,
-      "cost": 100.0,
-      "tier": "HIGH CONVICTION",
-      "score": 70.0,
-      "mode": "eod",
-      "alerted": true,
-      "rr": 2.71,
-      "target_pct": 7.51,
-      "stop_pct": 2.77,
-      "hold_days_est": 9
-    },
-    {
       "symbol": "QQQ",
       "opened_at": "2026-11-06T01:33:37.704053+00:00",
       "entry": 647.04,
@@ -3782,6 +3765,30 @@
       "pnl": 2.88,
       "costs_usd": 0.0,
       "pnl_pct": 2.88
+    },
+    {
+      "symbol": "XLC",
+      "opened_at": "2026-10-30T00:56:37.904211+00:00",
+      "entry": 101.33,
+      "stop": 98.52,
+      "target": 108.94,
+      "shares": 0.986875,
+      "cost": 100.0,
+      "tier": "HIGH CONVICTION",
+      "score": 70.0,
+      "mode": "eod",
+      "alerted": true,
+      "rr": 2.71,
+      "target_pct": 7.51,
+      "stop_pct": 2.77,
+      "hold_days_est": 9,
+      "exit": 108.94,
+      "exit_reason": "target",
+      "exit_date": "2026-11-11",
+      "closed_at": "2026-11-12T02:16:49.407380+00:00",
+      "pnl": 7.51,
+      "costs_usd": 0.0,
+      "pnl_pct": 7.51
     }
   ]
 }
