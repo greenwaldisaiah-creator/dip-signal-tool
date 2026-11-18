@@ -67,6 +67,23 @@
       "target_pct": 10.63,
       "stop_pct": 5.21,
       "hold_days_est": 7
+    },
+    {
+      "symbol": "MSFT",
+      "opened_at": "2026-11-18T02:55:05.561787+00:00",
+      "entry": 505.09,
+      "stop": 476.9,
+      "target": 527.33,
+      "shares": 0.197985,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 40.0,
+      "mode": "eod",
+      "alerted": false,
+      "rr": 0.79,
+      "target_pct": 4.4,
+      "stop_pct": 5.58,
+      "hold_days_est": 3
     }
   ],
   "closed": [
