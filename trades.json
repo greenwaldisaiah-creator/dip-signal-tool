@@ -18,23 +18,6 @@
       "hold_days_est": 8
     },
     {
-      "symbol": "SPY",
-      "opened_at": "2026-11-06T01:33:37.704068+00:00",
-      "entry": 733.0,
-      "stop": 716.54,
-      "target": 765.53,
-      "shares": 0.136426,
-      "cost": 100.0,
-      "tier": "HIGH CONVICTION",
-      "score": 75.9,
-      "mode": "eod",
-      "alerted": true,
-      "rr": 1.98,
-      "target_pct": 4.44,
-      "stop_pct": 2.25,
-      "hold_days_est": 6
-    },
-    {
       "symbol": "XLE",
       "opened_at": "2026-11-10T03:34:19.646182+00:00",
       "entry": 61.82,
@@ -84,6 +67,57 @@
       "target_pct": 4.4,
       "stop_pct": 5.58,
       "hold_days_est": 3
+    },
+    {
+      "symbol": "SPY",
+      "opened_at": "2026-11-20T02:19:49.219599+00:00",
+      "entry": 715.87,
+      "stop": 693.82,
+      "target": 751.32,
+      "shares": 0.13969,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 62.9,
+      "mode": "eod",
+      "alerted": false,
+      "rr": 1.61,
+      "target_pct": 4.95,
+      "stop_pct": 3.08,
+      "hold_days_est": 5
+    },
+    {
+      "symbol": "XLF",
+      "opened_at": "2026-11-20T02:19:49.219623+00:00",
+      "entry": 55.15,
+      "stop": 53.51,
+      "target": 57.26,
+      "shares": 1.813237,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 50.0,
+      "mode": "eod",
+      "alerted": false,
+      "rr": 1.29,
+      "target_pct": 3.83,
+      "stop_pct": 2.97,
+      "hold_days_est": 4
+    },
+    {
+      "symbol": "XLV",
+      "opened_at": "2026-11-20T02:19:49.219630+00:00",
+      "entry": 176.84,
+      "stop": 171.2,
+      "target": 184.45,
+      "shares": 0.565483,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 50.0,
+      "mode": "eod",
+      "alerted": false,
+      "rr": 1.35,
+      "target_pct": 4.3,
+      "stop_pct": 3.19,
+      "hold_days_est": 5
     }
   ],
   "closed": [
@@ -3806,6 +3840,30 @@
       "pnl": 7.51,
       "costs_usd": 0.0,
       "pnl_pct": 7.51
+    },
+    {
+      "symbol": "SPY",
+      "opened_at": "2026-11-06T01:33:37.704068+00:00",
+      "entry": 733.0,
+      "stop": 716.54,
+      "target": 765.53,
+      "shares": 0.136426,
+      "cost": 100.0,
+      "tier": "HIGH CONVICTION",
+      "score": 75.9,
+      "mode": "eod",
+      "alerted": true,
+      "rr": 1.98,
+      "target_pct": 4.44,
+      "stop_pct": 2.25,
+      "hold_days_est": 6,
+      "exit": 716.54,
+      "exit_reason": "stop",
+      "exit_date": "2026-11-19",
+      "closed_at": "2026-11-20T02:19:45.482609+00:00",
+      "pnl": -2.29,
+      "costs_usd": 0.0489,
+      "pnl_pct": -2.29
     }
   ]
 }
