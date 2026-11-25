@@ -69,23 +69,6 @@
       "hold_days_est": 4
     },
     {
-      "symbol": "XLV",
-      "opened_at": "2026-11-20T02:19:49.219630+00:00",
-      "entry": 176.84,
-      "stop": 171.2,
-      "target": 184.45,
-      "shares": 0.565483,
-      "cost": 100.0,
-      "tier": "WATCH",
-      "score": 50.0,
-      "mode": "eod",
-      "alerted": false,
-      "rr": 1.35,
-      "target_pct": 4.3,
-      "stop_pct": 3.19,
-      "hold_days_est": 5
-    },
-    {
       "symbol": "IWM",
       "opened_at": "2026-11-21T02:13:04.160644+00:00",
       "entry": 256.6,
@@ -135,23 +118,6 @@
       "target_pct": 6.68,
       "stop_pct": 3.74,
       "hold_days_est": 6
-    },
-    {
-      "symbol": "XLY",
-      "opened_at": "2026-11-21T02:13:04.160680+00:00",
-      "entry": 112.46,
-      "stop": 107.91,
-      "target": 117.8,
-      "shares": 0.889205,
-      "cost": 100.0,
-      "tier": "WATCH",
-      "score": 55.1,
-      "mode": "eod",
-      "alerted": false,
-      "rr": 1.17,
-      "target_pct": 4.75,
-      "stop_pct": 4.05,
-      "hold_days_est": 4
     }
   ],
   "closed": [
@@ -3970,6 +3936,54 @@
       "pnl": 11.27,
       "costs_usd": 0.0,
       "pnl_pct": 11.27
+    },
+    {
+      "symbol": "XLV",
+      "opened_at": "2026-11-20T02:19:49.219630+00:00",
+      "entry": 176.84,
+      "stop": 171.2,
+      "target": 184.45,
+      "shares": 0.565483,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 50.0,
+      "mode": "eod",
+      "alerted": false,
+      "rr": 1.35,
+      "target_pct": 4.3,
+      "stop_pct": 3.19,
+      "hold_days_est": 5,
+      "exit": 184.45,
+      "exit_reason": "target",
+      "exit_date": "2026-11-24",
+      "closed_at": "2026-11-25T04:11:05.101785+00:00",
+      "pnl": 4.3,
+      "costs_usd": 0.0,
+      "pnl_pct": 4.3
+    },
+    {
+      "symbol": "XLY",
+      "opened_at": "2026-11-21T02:13:04.160680+00:00",
+      "entry": 112.46,
+      "stop": 107.91,
+      "target": 117.8,
+      "shares": 0.889205,
+      "cost": 100.0,
+      "tier": "WATCH",
+      "score": 55.1,
+      "mode": "eod",
+      "alerted": false,
+      "rr": 1.17,
+      "target_pct": 4.75,
+      "stop_pct": 4.05,
+      "hold_days_est": 4,
+      "exit": 117.8,
+      "exit_reason": "target",
+      "exit_date": "2026-11-24",
+      "closed_at": "2026-11-25T04:11:05.101785+00:00",
+      "pnl": 4.75,
+      "costs_usd": 0.0,
+      "pnl_pct": 4.75
     }
   ]
 }
